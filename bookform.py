@@ -1,3 +1,9 @@
+"""Application entry point and workflow."""
+
+# Standard library imports
+
+
+# Third-party imports
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -9,11 +15,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QTextEdit,
 )
-
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCursor, QTextBlockFormat
 from docx import Document
 
-
+# Constants
 current_page = 0
 pages = []
 
@@ -22,250 +28,282 @@ page_preview = None
 page_number_label = None
 font_size_combo = None
 
+# Classes
+class bookformwindow(QWidget):
+    """Controls the BookForm application window."""
 
-def show_page():
-    if pages:
-        page_preview.setPlainText(pages[current_page])
-        page_number_label.setText(
-            f"Page {current_page + 1} of {len(pages)}"
+    def __init__(self) -> None:
+        super().__init__()
+
+        # application state
+        self.current_page = 0
+        self.pages = []
+
+        # window configuration
+        self.setWindowTitle("BookForm")
+        self.resize(800, 600)
+
+        # layout setup
+        self.layout = QHBoxLayout()
+        self.setLayout(self.layout)
+
+        # panel creation
+        self.controls_panel = QWidget()
+        self.preview_panel = QWidget()
+        self.layout.addWidget(self.controls_panel)
+        self.layout.addWidget(self.preview_panel)
+        self.controls_layout = QVBoxLayout()
+        self.controls_panel.setLayout(self.controls_layout)
+        self.preview_layout = QVBoxLayout()
+        self.preview_panel.setLayout(self.preview_layout)
+
+        # formatting controls
+        trim_label = QLabel("Trim Size")
+
+        self.trim_combo = QComboBox()
+        self.trim_combo.addItem("6 by 9 inches")
+
+        self.controls_layout.addWidget(trim_label)
+        self.controls_layout.addWidget(self.trim_combo)
+
+        font_label = QLabel("Body Font")
+
+        self.font_combo = QComboBox()
+        self.font_combo.addItems([
+            "Garamond",
+            "Times New Roman",
+            "Georgia",
+        ])
+
+        self.font_combo.currentTextChanged.connect(
+            self.update_font
         )
 
+        self.controls_layout.addWidget(font_label)
+        self.controls_layout.addWidget(self.font_combo)
 
-def previous_page():
-    global current_page
+        font_size_label = QLabel("Font Size")
 
-    if current_page > 0:
-        current_page -= 1
-        show_page()
+        self.font_size_combo = QComboBox()
+        self.font_size_combo.addItems([
+            "10 pt",
+            "11 pt",
+            "12 pt",
+        ])
+
+        self.font_size_combo.currentTextChanged.connect(
+            self.update_font_size
+        )
+
+        self.controls_layout.addWidget(font_size_label)
+        self.controls_layout.addWidget(self.font_size_combo)
+
+        line_spacing_label = QLabel("Line Spacing")
+
+        self.line_spacing_combo = QComboBox()
+        self.line_spacing_combo.addItems([
+            "1.0",
+            "1.15",
+            "1.5",
+        ])
+
+        self.controls_layout.addWidget(line_spacing_label)
+        self.controls_layout.addWidget(self.line_spacing_combo)
+
+        # manuscript controls
+        self.load_button = QPushButton("Load Manuscript")
+        self.load_button = QPushButton("Load Manuscript")
+        self.load_button.clicked.connect(self.load_manuscript)
+        self.controls_layout.addWidget(self.load_button)
+
+        self.controls_layout.addStretch()
+
+        # preview setup
+        preview_title = QLabel("Book Preview")
+        self.preview_layout.addWidget(preview_title)
+
+        self.page_preview = QTextEdit()
+        self.page_preview.setFixedSize(400, 600)
+        self.page_preview.setReadOnly(True)
+        self.page_preview.setFocusPolicy(Qt.NoFocus)
+
+        self.page_preview.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+
+        self.page_preview.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+
+        self.page_preview.setStyleSheet("""
+            background-color: white;
+            border: 1px solid gray;
+            padding: 50px 40px;
+        """)
+
+        self.preview_layout.addWidget(self.page_preview)
+
+        # page navigation
+        navigation_layout = QHBoxLayout()
+
+        self.previous_button = QPushButton("Previous")
+        self.next_button = QPushButton("Next")
+        self.page_number_label = QLabel("Page 0 of 0")
+
+        self.previous_button.clicked.connect(self.previous_page)
+        self.next_button.clicked.connect(self.next_page)
+        
+        navigation_layout.addWidget(self.previous_button)
+        navigation_layout.addWidget(self.page_number_label)
+        navigation_layout.addWidget(self.next_button)
+
+        self.preview_layout.addLayout(navigation_layout)
+
+    # Methods
+    def show_page(self) -> None:
+            if self.pages:
+                self.page_preview.setPlainText(
+                    self.pages[self.current_page]
+                )
+
+                self.page_number_label.setText(
+                    f"Page {self.current_page + 1} of {len(self.pages)}"
+                )
+
+    def previous_page(self) -> None:
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.show_page()
 
 
-def next_page():
-    global current_page
+    def next_page(self) -> None:
+        if self.current_page < len(self.pages) - 1:
+            self.current_page += 1
+            self.show_page()
 
-    if current_page < len(pages) - 1:
-        current_page += 1
-        show_page()
+    def load_manuscript(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Manuscript",
+            "",
+            "Word Documents (*.docx)"
+        )
 
+        if file_path:
+            document = Document(file_path)
 
-def text_fits_page(text):
-    page_preview.setPlainText(text)
+            paragraphs = []
 
-    document_height = page_preview.document().size().height()
-    visible_height = page_preview.viewport().height()
+            for paragraph in document.paragraphs:
+                if paragraph.text.strip():
+                    paragraphs.append(paragraph.text)
 
-    return document_height <= visible_height
+            self.pages = []
+            current_page_text = ""
 
+            for paragraph in paragraphs:
+                paragraph_remaining = paragraph
 
-def split_paragraph_to_fit(paragraph):
-    words = paragraph.split()
-    fitting_words = []
-
-    for index, word in enumerate(words):
-        test_text = " ".join(fitting_words + [word])
-
-        if text_fits_page(test_text):
-            fitting_words.append(word)
-        else:
-            if not fitting_words:
-                return word, " ".join(words[index + 1:])
-
-            return (
-                " ".join(fitting_words),
-                " ".join(words[index:])
-            )
-
-    return " ".join(fitting_words), ""
-
-
-def load_manuscript():
-    global pages, current_page
-
-    file_path, _ = QFileDialog.getOpenFileName(
-        window,
-        "Select Manuscript",
-        "",
-        "Word Documents (*.docx)"
-    )
-
-    if file_path:
-        document = Document(file_path)
-
-        paragraphs = []
-
-        for paragraph in document.paragraphs:
-            if paragraph.text.strip():
-                paragraphs.append(paragraph.text)
-
-        pages = []
-        current_page_text = ""
-
-        for paragraph in paragraphs:
-            paragraph_remaining = paragraph
-
-            while paragraph_remaining:
-                if current_page_text:
-                    test_text = (
-                        current_page_text
-                        + "\n\n"
-                        + paragraph_remaining
-                    )
-                else:
-                    test_text = paragraph_remaining
-
-                if text_fits_page(test_text):
-                    current_page_text = test_text
-                    paragraph_remaining = ""
-                else:
+                while paragraph_remaining:
                     if current_page_text:
-                        pages.append(current_page_text)
-                        current_page_text = ""
-                    else:
-                        fitting_text, paragraph_remaining = (
-                            split_paragraph_to_fit(
-                                paragraph_remaining
-                            )
+                        test_text = (
+                            current_page_text
+                            + "\n\n"
+                            + paragraph_remaining
                         )
+                    else:
+                        test_text = paragraph_remaining
 
-                        pages.append(fitting_text)
+                    if self.text_fits_page(test_text):
+                        current_page_text = test_text
+                        paragraph_remaining = ""
+                    else:
+                        if current_page_text:
+                            self.pages.append(current_page_text)
+                            current_page_text = ""
+                        else:
+                            fitting_text, paragraph_remaining = (
+                                self.split_paragraph_to_fit(
+                                    paragraph_remaining
+                                )
+                            )
 
-        if current_page_text:
-            pages.append(current_page_text)
+                            self.pages.append(fitting_text)
 
-        current_page = 0
-        show_page()
+            if current_page_text:
+                self.pages.append(current_page_text)
+
+            self.current_page = 0
+            self.show_page()
+
+    def text_fits_page(self, text):
+        self.page_preview.setPlainText(text)
+
+        document_height = self.page_preview.document().size().height()
+        visible_height = self.page_preview.viewport().height()
+
+        return document_height <= visible_height
 
 
-def update_font_size():
-    size_text = font_size_combo.currentText()
-    size = int(size_text.split()[0])
+    def split_paragraph_to_fit(self, paragraph):
+        words = paragraph.split()
+        fitting_words = []
 
-    font = page_preview.font()
-    font.setPointSize(size)
-    page_preview.setFont(font)
+        for index, word in enumerate(words):
+            test_text = " ".join(fitting_words + [word])
+
+            if self.text_fits_page(test_text):
+                fitting_words.append(word)
+            else:
+                if not fitting_words:
+                    return word, " ".join(words[index + 1:])
+
+                return (
+                    " ".join(fitting_words),
+                    " ".join(words[index:])
+                )
+
+        return " ".join(fitting_words), ""
+
+    def update_font_size(self) -> None:
+        size_text = self.font_size_combo.currentText()
+        size = int(size_text.split()[0])
+
+        font = self.page_preview.font()
+        font.setPointSize(size)
+        self.page_preview.setFont(font)
+
+    def update_font(self) -> None:
+        text = self.font_combo.currentText()
+
+        font = self.page_preview.font()
+        font.setFamily(text)
+        self.page_preview.setFont(font)
+
+    def update_line_spacing(self) -> None:
+        spacing = float(self.line_spacing_combo.currentText())
+        line_height = spacing * 100
+
+        cursor = self.page_preview.textCursor()
+        cursor.select(QTextCursor.Document)
+
+        block_format = QTextBlockFormat()
+        block_format.setLineHeight(
+            line_height,
+            QTextBlockFormat.LineHeightTypes.ProportionalHeight
+        )
+
+        cursor.setBlockFormat(block_format)
 
 
+        
 def main():
-    global window
-    global page_preview
-    global page_number_label
-    global font_size_combo
-
     app = QApplication([])
 
-    window = QWidget()
-    window.setWindowTitle("BookForm")
-    window.resize(800, 600)
-
-    layout = QHBoxLayout()
-    window.setLayout(layout)
-
-    controls_panel = QWidget()
-    preview_panel = QWidget()
-
-    layout.addWidget(controls_panel)
-    layout.addWidget(preview_panel)
-
-    controls_layout = QVBoxLayout()
-    controls_panel.setLayout(controls_layout)
-
-    trim_label = QLabel("Trim Size")
-    trim_combo = QComboBox()
-    trim_combo.addItem("6 by 9 inches")
-
-    controls_layout.addWidget(trim_label)
-    controls_layout.addWidget(trim_combo)
-
-    font_label = QLabel("Body Font")
-    font_combo = QComboBox()
-    font_combo.addItems([
-        "Garamond",
-        "Times New Roman",
-        "Georgia",
-    ])
-
-    controls_layout.addWidget(font_label)
-    controls_layout.addWidget(font_combo)
-
-    font_size_label = QLabel("Font Size")
-
-    font_size_combo = QComboBox()
-    font_size_combo.addItems([
-        "10 pt",
-        "11 pt",
-        "12 pt",
-    ])
-
-    font_size_combo.currentTextChanged.connect(
-        update_font_size
-    )
-
-    controls_layout.addWidget(font_size_label)
-    controls_layout.addWidget(font_size_combo)
-
-    line_spacing_label = QLabel("Line Spacing")
-    line_spacing_combo = QComboBox()
-    line_spacing_combo.addItems([
-        "1.0",
-        "1.15",
-        "1.5",
-    ])
-
-    controls_layout.addWidget(line_spacing_label)
-    controls_layout.addWidget(line_spacing_combo)
-
-    load_button = QPushButton("Load Manuscript")
-    load_button.clicked.connect(load_manuscript)
-
-    controls_layout.addWidget(load_button)
-    controls_layout.addStretch()
-
-    preview_layout = QVBoxLayout()
-    preview_panel.setLayout(preview_layout)
-
-    preview_title = QLabel("Book Preview")
-    preview_layout.addWidget(preview_title)
-
-    page_preview = QTextEdit()
-    page_preview.setFixedSize(400, 600)
-    page_preview.setReadOnly(True)
-    page_preview.setFocusPolicy(Qt.NoFocus)
-
-    page_preview.setVerticalScrollBarPolicy(
-        Qt.ScrollBarAlwaysOff
-    )
-
-    page_preview.setHorizontalScrollBarPolicy(
-        Qt.ScrollBarAlwaysOff
-    )
-
-    page_preview.setStyleSheet("""
-        background-color: white;
-        border: 1px solid gray;
-        padding: 50px 40px;
-    """)
-
-    preview_layout.addWidget(page_preview)
-
-    navigation_layout = QHBoxLayout()
-
-    previous_button = QPushButton("Previous")
-    next_button = QPushButton("Next")
-
-    previous_button.clicked.connect(previous_page)
-    next_button.clicked.connect(next_page)
-
-    page_number_label = QLabel("Page 0 of 0")
-
-    navigation_layout.addWidget(previous_button)
-    navigation_layout.addWidget(page_number_label)
-    navigation_layout.addWidget(next_button)
-
-    preview_layout.addLayout(navigation_layout)
-
+    window = bookformwindow()
     window.show()
 
     app.exec()
-
 
 if __name__ == "__main__":
     main()
