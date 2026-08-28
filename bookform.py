@@ -1,4 +1,4 @@
-"""Application entry point and workflow."""
+"""book formatter to publish in KDP."""
 
 # Standard library imports
 
@@ -38,6 +38,7 @@ class bookformwindow(QWidget):
         # application state
         self.current_page = 0
         self.pages = []
+        self.paragraphs = []
 
         # window configuration
         self.setWindowTitle("BookForm")
@@ -107,6 +108,10 @@ class bookformwindow(QWidget):
             "1.5",
         ])
 
+        self.line_spacing_combo.currentTextChanged.connect(
+            self.line_spacing_changed
+        )
+
         self.controls_layout.addWidget(line_spacing_label)
         self.controls_layout.addWidget(self.line_spacing_combo)
 
@@ -165,7 +170,8 @@ class bookformwindow(QWidget):
                 self.page_preview.setPlainText(
                     self.pages[self.current_page]
                 )
-
+                self.update_line_spacing()
+                
                 self.page_number_label.setText(
                     f"Page {self.current_page + 1} of {len(self.pages)}"
                 )
@@ -181,6 +187,42 @@ class bookformwindow(QWidget):
             self.current_page += 1
             self.show_page()
 
+    def update_pages(self) -> None:
+        self.pages = []
+        current_page_text = ""
+
+        for paragraph in self.paragraphs:
+            paragraph_remaining = paragraph
+        
+            while paragraph_remaining:
+                if current_page_text:
+                    test_text = (
+                        current_page_text
+                        + "\n\n"
+                        + paragraph_remaining
+                    )
+                else:
+                    test_text = paragraph_remaining
+        
+                if self.text_fits_page(test_text):
+                    current_page_text = test_text
+                    paragraph_remaining = ""
+                else:
+                    if current_page_text:
+                        self.pages.append(current_page_text)
+                        current_page_text = ""
+                    else:
+                        fitting_text, paragraph_remaining = (
+                            self.split_paragraph_to_fit(
+                                paragraph_remaining
+                            )
+                        )
+        
+                        self.pages.append(fitting_text)
+        
+        if current_page_text:
+            self.pages.append(current_page_text)
+
     def load_manuscript(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -192,52 +234,20 @@ class bookformwindow(QWidget):
         if file_path:
             document = Document(file_path)
 
-            paragraphs = []
+            self.paragraphs = []
 
             for paragraph in document.paragraphs:
                 if paragraph.text.strip():
-                    paragraphs.append(paragraph.text)
+                    self.paragraphs.append(paragraph.text)
 
-            self.pages = []
-            current_page_text = ""
-
-            for paragraph in paragraphs:
-                paragraph_remaining = paragraph
-
-                while paragraph_remaining:
-                    if current_page_text:
-                        test_text = (
-                            current_page_text
-                            + "\n\n"
-                            + paragraph_remaining
-                        )
-                    else:
-                        test_text = paragraph_remaining
-
-                    if self.text_fits_page(test_text):
-                        current_page_text = test_text
-                        paragraph_remaining = ""
-                    else:
-                        if current_page_text:
-                            self.pages.append(current_page_text)
-                            current_page_text = ""
-                        else:
-                            fitting_text, paragraph_remaining = (
-                                self.split_paragraph_to_fit(
-                                    paragraph_remaining
-                                )
-                            )
-
-                            self.pages.append(fitting_text)
-
-            if current_page_text:
-                self.pages.append(current_page_text)
+            self.update_pages()        
 
             self.current_page = 0
             self.show_page()
 
     def text_fits_page(self, text):
         self.page_preview.setPlainText(text)
+        self.update_line_spacing()
 
         document_height = self.page_preview.document().size().height()
         visible_height = self.page_preview.viewport().height()
@@ -273,12 +283,18 @@ class bookformwindow(QWidget):
         font.setPointSize(size)
         self.page_preview.setFont(font)
 
+        self.update_pages()
+        self.show_page()
+
     def update_font(self) -> None:
         text = self.font_combo.currentText()
-
+        
         font = self.page_preview.font()
         font.setFamily(text)
         self.page_preview.setFont(font)
+
+        self.update_pages()
+        self.show_page()
 
     def update_line_spacing(self) -> None:
         spacing = float(self.line_spacing_combo.currentText())
@@ -288,15 +304,19 @@ class bookformwindow(QWidget):
         cursor.select(QTextCursor.Document)
 
         block_format = QTextBlockFormat()
+        # Apply line spacing as a percentage of normal height
         block_format.setLineHeight(
             line_height,
-            QTextBlockFormat.LineHeightTypes.ProportionalHeight
+            QTextBlockFormat.LineHeightTypes.ProportionalHeight.value
         )
 
         cursor.setBlockFormat(block_format)
 
-
-        
+    def line_spacing_changed(self) -> None:
+        self.update_line_spacing()
+        self.update_pages()
+        self.show_page()
+    
 def main():
     app = QApplication([])
 
