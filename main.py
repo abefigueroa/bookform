@@ -2,7 +2,6 @@
 
 # Standard library imports
 
-
 # Third-party imports
 from PySide6.QtWidgets import (
     QApplication,
@@ -19,14 +18,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor, QTextBlockFormat
 from docx import Document
 
-# Constants
-current_page = 0
-pages = []
-
-window = None
-page_preview = None
-page_number_label = None
-font_size_combo = None
+# Local imports
+import constants
 
 # Classes
 class bookformwindow(QWidget):
@@ -128,7 +121,10 @@ class bookformwindow(QWidget):
         self.preview_layout.addWidget(preview_title)
 
         self.page_preview = QTextEdit()
-        self.page_preview.setFixedSize(400, 600)
+        self.page_preview.setFixedSize(
+            constants.PREVIEW_WIDTH_PIXELS,
+            constants.PREVIEW_HEIGHT_PIXELS,
+        )
         self.page_preview.setReadOnly(True)
         self.page_preview.setFocusPolicy(Qt.NoFocus)
 
@@ -222,6 +218,8 @@ class bookformwindow(QWidget):
         
         if current_page_text:
             self.pages.append(current_page_text)
+        if self.pages:
+            self.gutter_width = calculate_gutter_width(len(self.pages))
 
     def load_manuscript(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -316,6 +314,27 @@ class bookformwindow(QWidget):
         self.update_line_spacing()
         self.update_pages()
         self.show_page()
+
+# Functions
+def calculate_gutter_width(page_count: int) -> float:
+    if page_count < 24:
+        raise ValueError("KDP requires at least 24 pages.")
+
+    if page_count <= 150:
+        return 0.375
+    elif page_count <= 300:
+        return 0.500
+    elif page_count <= 500:
+        return 0.625
+    elif page_count <= 700:
+        return 0.750
+    elif page_count <= 828:
+        return 0.875
+
+    raise ValueError("Page count exceeds the supported KDP range")
+
+def inches_to_pixels(inches: float) -> int:
+    return round(inches * constants.PIXELS_PER_INCH)
     
 def main():
     app = QApplication([])
