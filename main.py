@@ -20,6 +20,7 @@ from docx import Document
 
 # Local imports
 import constants
+import book_layout
 
 # Classes
 class bookformwindow(QWidget):
@@ -194,10 +195,10 @@ class bookformwindow(QWidget):
         profile_name = self.margin_profile_combo.currentText()
         profile = constants.MARGIN_PROFILES[profile_name]
 
-        top_margin = inches_to_pixels(profile["top"])
-        bottom_margin = inches_to_pixels(profile["bottom"])
-        outside_margin = inches_to_pixels(profile["outside"])
-        gutter_margin = inches_to_pixels(self.gutter_width)
+        top_margin = book_layout.inches_to_pixels(profile["top"])
+        bottom_margin = book_layout.inches_to_pixels(profile["bottom"])
+        outside_margin = book_layout.inches_to_pixels(profile["outside"])
+        gutter_margin = book_layout.inches_to_pixels(self.gutter_width)
 
         page_number = self.current_page + 1
 
@@ -341,7 +342,7 @@ class bookformwindow(QWidget):
             )
             page_count = len(self.pages)
 
-            new_gutter_width = calculate_gutter_width(page_count)
+            new_gutter_width = book_layout.calculate_gutter_width(page_count)
 
             if new_gutter_width != self.gutter_width:
                 self.gutter_width = new_gutter_width
@@ -363,10 +364,10 @@ class bookformwindow(QWidget):
         profile_name = self.margin_profile_combo.currentText()
         profile = constants.MARGIN_PROFILES[profile_name]
 
-        top_margin = inches_to_pixels(profile["top"])
-        bottom_margin = inches_to_pixels(profile["bottom"])
-        outside_margin = inches_to_pixels(profile["outside"])
-        gutter_margin = inches_to_pixels(self.gutter_width)
+        top_margin = book_layout.inches_to_pixels(profile["top"])
+        bottom_margin = book_layout.inches_to_pixels(profile["bottom"])
+        outside_margin = book_layout.inches_to_pixels(profile["outside"])
+        gutter_margin = book_layout.inches_to_pixels(self.gutter_width)
 
         usable_width = (
             constants.PREVIEW_WIDTH_PIXELS
@@ -474,7 +475,7 @@ class bookformwindow(QWidget):
         spacing = float(self.line_spacing_combo.currentText())
         line_height = spacing * 100
 
-        first_line_indent = inches_to_pixels(
+        first_line_indent = book_layout.inches_to_pixels(
         constants.FIRST_LINE_INDENT_INCHES
         )
 
@@ -503,20 +504,6 @@ class bookformwindow(QWidget):
         self.show_page()
 
 # Functions
-def calculate_gutter_width(page_count: int) -> float:
-    if page_count <= 150:
-        return 0.375
-    elif page_count <= 300:
-        return 0.500
-    elif page_count <= 500:
-        return 0.625
-    elif page_count <= 700:
-        return 0.750
-    else:
-        return 0.875
-
-def inches_to_pixels(inches: float) -> int:
-    return round(inches * constants.PIXELS_PER_INCH)
 
 
 def main():
