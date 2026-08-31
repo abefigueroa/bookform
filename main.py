@@ -38,6 +38,7 @@ class bookformwindow(QWidget):
         self.current_page = 0
         self.pages = []
         self.paragraphs = []
+        self.page_starts_with_continuation = []
         self.gutter_width = 0.375
 
         # window configuration
@@ -74,6 +75,8 @@ class bookformwindow(QWidget):
             "Garamond",
             "Times New Roman",
             "Georgia",
+            "Arial",
+            "Palatino Linotype",
         ])
 
         self.font_combo.currentTextChanged.connect(
@@ -87,6 +90,12 @@ class bookformwindow(QWidget):
 
         self.font_size_combo = QComboBox()
         self.font_size_combo.addItems([
+            "8.5 pt",
+            "8.6 pt",
+            "8.65 pt",
+            "8.7 pt",
+            "8.75 pt",
+            "9 pt",
             "10 pt",
             "11 pt",
             "12 pt",
@@ -235,11 +244,11 @@ class bookformwindow(QWidget):
     def apply_font_settings(self, preview: QTextEdit) -> None:
         font_name = self.font_combo.currentText()
         size_text = self.font_size_combo.currentText()
-        font_size = int(size_text.split()[0])
+        font_size = float(size_text.split()[0])
 
         font = preview.font()
         font.setFamily(font_name)
-        font.setPointSize(font_size)
+        font.setPointSizeF(font_size)
         preview.setFont(font)
 
     def show_page(self) -> None:
@@ -279,8 +288,25 @@ class bookformwindow(QWidget):
                 f"Page {left_index + 1} of {len(self.pages)}"
             )
 
-        self.apply_paragraph_formatting(self.left_page_preview)
-        self.apply_paragraph_formatting(self.right_page_preview)
+        left_continues = (
+            left_index >= 0
+            and self.page_starts_with_continuation[left_index]
+        )
+
+        right_continues = (
+            right_index < len(self.pages)
+            and self.page_starts_with_continuation[right_index]
+        )
+
+        self.apply_paragraph_formatting(
+            self.left_page_preview,
+            left_continues,
+        )
+
+        self.apply_paragraph_formatting(
+            self.right_page_preview,
+            right_continues,
+        )
 
         self.apply_font_settings(self.left_page_preview)
         self.apply_font_settings(self.right_page_preview)
@@ -316,15 +342,23 @@ class bookformwindow(QWidget):
 
     def update_pages(self) -> None:
         self.pages = []
+        self.page_starts_with_continuation = []
+
         current_page_text = ""
+        current_page_starts_with_continuation = False
 
         for paragraph in self.paragraphs:
             if manuscript.is_chapter_heading(paragraph):
                 if current_page_text:
-                    self.pages.append(current_page_text)
+                    self.add_page(
+                        current_page_text,
+                        current_page_starts_with_continuation,
+                    )
                     current_page_text = ""
+                    current_page_starts_with_continuation = False
 
             paragraph_remaining = paragraph
+            paragraph_continues = False
         
             while paragraph_remaining:
                 if current_page_text:
@@ -333,27 +367,75 @@ class bookformwindow(QWidget):
                         + "\n"
                         + paragraph_remaining
                     )
+                    test_starts_with_continuation = (
+                        current_page_starts_with_continuation
+                    )
                 else:
                     test_text = paragraph_remaining
+                    test_starts_with_continuation = paragraph_continues
         
-                if self.text_fits_page(test_text):
+                if self.text_fits_page(
+                    test_text,
+                    test_starts_with_continuation,
+                ):
+                    if not current_page_text:
+                        current_page_starts_with_continuation = (
+                            paragraph_continues
+                        )
+
                     current_page_text = test_text
                     paragraph_remaining = ""
                 else:
                     if current_page_text:
-                        self.pages.append(current_page_text)
+                        fitting_text, paragraph_remaining = (
+                            self.split_paragraph_to_fit(
+                                paragraph_remaining,
+                                current_page_text,
+                                current_page_starts_with_continuation,
+                            )
+                        )
+
+                        if fitting_text:
+                            self.add_page(
+                                current_page_text
+                                + "\n"
+                            + fitting_text,
+                            current_page_starts_with_continuation,
+                            )
+
+                            if paragraph_remaining:
+                                paragraph_continues = True
+
+                        else:
+                            self.add_page(
+                                current_page_text,
+                                current_page_starts_with_continuation,
+                            )
+
                         current_page_text = ""
+                        current_page_starts_with_continuation = False
+
                     else:
                         fitting_text, paragraph_remaining = (
                             self.split_paragraph_to_fit(
-                                paragraph_remaining
+                                paragraph_remaining,
+                                first_block_continues=paragraph_continues,
                             )
                         )
-        
-                        self.pages.append(fitting_text)
+
+                        self.add_page(
+                            fitting_text,
+                            paragraph_continues,
+                        )
+
+                        if paragraph_remaining:
+                            paragraph_continues = True
         
         if current_page_text:
-            self.pages.append(current_page_text)
+            self.add_page(
+                current_page_text,
+                current_page_starts_with_continuation,
+            )
 
         if self.pages:
             print(f"Page count: {len(self.pages)}")
@@ -451,11 +533,18 @@ class bookformwindow(QWidget):
             self.show_page()
 
 
-    def text_fits_page(self, text) -> bool:
+    def text_fits_page(
+        self,
+        text: str,
+        first_block_continues: bool = False,
+    ) -> bool:
         self.page_preview.setPlainText(text)
 
         self.apply_font_settings(self.page_preview)
-        self.apply_paragraph_formatting(self.page_preview)
+        self.apply_paragraph_formatting(
+            self.page_preview,
+            first_block_continues,
+        )
 
         self.page_preview.document().setTextWidth(
             self.measurement_width
@@ -466,17 +555,37 @@ class bookformwindow(QWidget):
         return document_height <= self.measurement_height
 
 
-    def split_paragraph_to_fit(self, paragraph):
+    def split_paragraph_to_fit(
+        self,
+        paragraph: str,
+        current_page_text: str = "",
+        first_block_continues: bool = False,
+    ) -> tuple[str, str]:
         words = paragraph.split()
         fitting_words = []
 
         for index, word in enumerate(words):
-            test_text = " ".join(fitting_words + [word])
+            candidate = " ".join(fitting_words + [word])
 
-            if self.text_fits_page(test_text):
+            if current_page_text:
+                test_text = (
+                    current_page_text
+                    + "\n"
+                    + candidate
+                )
+            else:
+                test_text = candidate
+
+            if self.text_fits_page(
+                test_text,
+                first_block_continues,
+            ):
                 fitting_words.append(word)
             else:
                 if not fitting_words:
+                    if current_page_text:
+                        return "", paragraph
+
                     return word, " ".join(words[index + 1:])
 
                 return (
@@ -487,12 +596,7 @@ class bookformwindow(QWidget):
         return " ".join(fitting_words), ""
 
     def update_font_size(self) -> None:
-        size_text = self.font_size_combo.currentText()
-        size = int(size_text.split()[0])
-
-        font = self.page_preview.font()
-        font.setPointSize(size)
-        self.page_preview.setFont(font)
+        self.apply_font_settings(self.page_preview)
 
         self.update_pages()
         self.show_page()
@@ -507,7 +611,11 @@ class bookformwindow(QWidget):
         self.update_pages()
         self.show_page()
 
-    def apply_paragraph_formatting(self, preview: QTextEdit) -> None:
+    def apply_paragraph_formatting(
+        self,
+        preview: QTextEdit,
+        first_block_continues: bool = False,
+    ) -> None:
         spacing = float(self.line_spacing_combo.currentText())
         line_height = spacing * 100
 
@@ -519,6 +627,8 @@ class bookformwindow(QWidget):
         block = document.begin()
 
         previous_was_heading = False
+
+        block_number = 0
 
         while block.isValid():
             text = block.text().strip()
@@ -541,6 +651,9 @@ class bookformwindow(QWidget):
                 block_format.setBottomMargin(heading_space_after)
 
             elif previous_was_heading:
+                block_format.setTextIndent(0)
+
+            elif block_number == 0 and first_block_continues:
                 block_format.setTextIndent(0)
 
             else:
@@ -566,6 +679,7 @@ class bookformwindow(QWidget):
                 cursor.setCharFormat(heading_format)
 
             previous_was_heading = is_heading
+            block_number += 1
             block = block.next()
 
     def line_spacing_changed(self) -> None:
@@ -577,6 +691,16 @@ class bookformwindow(QWidget):
         self.update_measurement_area()
         self.update_pages()
         self.show_page()
+
+    def add_page(
+        self,
+        text: str,
+        starts_with_continuation: bool = False,
+    ) -> None:
+        self.pages.append(text)
+        self.page_starts_with_continuation.append(
+            starts_with_continuation
+    )
 
 # Functions
 
