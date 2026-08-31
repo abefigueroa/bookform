@@ -1,6 +1,7 @@
 """book formatter to publish in KDP."""
 
 # Standard library imports
+import manuscript
 
 # Third-party imports
 from PySide6.QtWidgets import (
@@ -15,7 +16,11 @@ from PySide6.QtWidgets import (
     QTextEdit,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor, QTextBlockFormat
+from PySide6.QtGui import (
+    QTextBlockFormat,
+    QTextCharFormat,
+    QTextCursor,
+)
 from docx import Document
 
 # Local imports
@@ -280,6 +285,22 @@ class bookformwindow(QWidget):
         self.apply_font_settings(self.left_page_preview)
         self.apply_font_settings(self.right_page_preview)
 
+        print(
+            "Left page:",
+            f"viewport={self.left_page_preview.viewport().width()}x"
+            f"{self.left_page_preview.viewport().height()}",
+            f"document={self.left_page_preview.document().size().width():.1f}x"
+            f"{self.left_page_preview.document().size().height():.1f}",
+        )
+
+        print(
+            "Right page:",
+            f"viewport={self.right_page_preview.viewport().width()}x"
+            f"{self.right_page_preview.viewport().height()}",
+            f"document={self.right_page_preview.document().size().width():.1f}x"
+            f"{self.right_page_preview.document().size().height():.1f}",
+        )
+
 
     def previous_page(self) -> None:
         if self.current_page >= 2:
@@ -298,6 +319,11 @@ class bookformwindow(QWidget):
         current_page_text = ""
 
         for paragraph in self.paragraphs:
+            if manuscript.is_chapter_heading(paragraph):
+                if current_page_text:
+                    self.pages.append(current_page_text)
+                    current_page_text = ""
+
             paragraph_remaining = paragraph
         
             while paragraph_remaining:
@@ -369,16 +395,20 @@ class bookformwindow(QWidget):
         outside_margin = book_layout.inches_to_pixels(profile["outside"])
         gutter_margin = book_layout.inches_to_pixels(self.gutter_width)
 
+        border_space = constants.PREVIEW_BORDER_PIXELS * 2
+
         usable_width = (
             constants.PREVIEW_WIDTH_PIXELS
             - gutter_margin
             - outside_margin
+            - border_space
         )
 
         usable_height = (
             constants.PREVIEW_HEIGHT_PIXELS
             - top_margin
             - bottom_margin
+            - border_space
         )
 
         self.measurement_width = usable_width
@@ -399,12 +429,16 @@ class bookformwindow(QWidget):
 
         if file_path:
             document = Document(file_path)
+            styles_found = set()
 
             self.paragraphs = []
 
             for paragraph in document.paragraphs:
+                styles_found.add(paragraph.style.name)
+
                 if paragraph.text.strip():
                     self.paragraphs.append(paragraph.text)
+
             print(
                 f"Measurement area: "
                 f"{self.measurement_width} x "
@@ -417,8 +451,10 @@ class bookformwindow(QWidget):
             self.show_page()
 
 
-    def text_fits_page(self, text):
+    def text_fits_page(self, text) -> bool:
         self.page_preview.setPlainText(text)
+
+        self.apply_font_settings(self.page_preview)
         self.apply_paragraph_formatting(self.page_preview)
 
         self.page_preview.document().setTextWidth(
@@ -476,22 +512,61 @@ class bookformwindow(QWidget):
         line_height = spacing * 100
 
         first_line_indent = book_layout.inches_to_pixels(
-        constants.FIRST_LINE_INDENT_INCHES
+            constants.FIRST_LINE_INDENT_INCHES
         )
 
-        cursor = preview.textCursor()
-        cursor.select(QTextCursor.Document)
+        document = preview.document()
+        block = document.begin()
 
-        block_format = QTextBlockFormat()
-        # Apply line spacing as a percentage of normal height
-        block_format.setLineHeight(
-            line_height,
-            QTextBlockFormat.LineHeightTypes.ProportionalHeight.value
-        )
+        previous_was_heading = False
 
-        block_format.setTextIndent(first_line_indent)
+        while block.isValid():
+            text = block.text().strip()
+            is_heading = manuscript.is_chapter_heading(text)
 
-        cursor.setBlockFormat(block_format)
+            block_format = QTextBlockFormat()
+
+            block_format.setLineHeight(
+                line_height,
+                QTextBlockFormat.LineHeightTypes.ProportionalHeight.value
+            )
+
+            if is_heading:
+                block_format.setTextIndent(0)
+                block_format.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                heading_space_after = book_layout.inches_to_pixels(
+                    constants.CHAPTER_HEADING_SPACE_AFTER_INCHES
+                )
+                block_format.setBottomMargin(heading_space_after)
+
+            elif previous_was_heading:
+                block_format.setTextIndent(0)
+
+            else:
+                block_format.setTextIndent(first_line_indent)
+
+            cursor = QTextCursor(block)
+            cursor.setBlockFormat(block_format)
+
+            if is_heading:
+                heading_format = QTextCharFormat()
+                heading_format.setFontPointSize(
+                    constants.CHAPTER_HEADING_FONT_SIZE
+                )
+
+                cursor.movePosition(
+                    QTextCursor.MoveOperation.StartOfBlock
+                )
+                cursor.movePosition(
+                    QTextCursor.MoveOperation.EndOfBlock,
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
+
+                cursor.setCharFormat(heading_format)
+
+            previous_was_heading = is_heading
+            block = block.next()
 
     def line_spacing_changed(self) -> None:
         self.apply_paragraph_formatting(self.page_preview)
@@ -504,6 +579,17 @@ class bookformwindow(QWidget):
         self.show_page()
 
 # Functions
+
+def is_chapter_heading(text: str) -> bool:
+    return bool(re.match(r"^\d+\.\s+\S", text.strip()))
+
+def has_numbering(paragraph) -> bool:
+    paragraph_properties = paragraph._p.pPr
+
+    return (
+        paragraph_properties is not None
+        and paragraph_properties.numPr is not None
+    )
 
 
 def main():
