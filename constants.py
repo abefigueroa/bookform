@@ -13,3 +13,27 @@ PREVIEW_WIDTH_PIXELS = round(
     * TRIM_WIDTH_INCHES
     / TRIM_HEIGHT_INCHES
 )
+
+FIRST_LINE_INDENT_INCHES = 0.30
+
+KDP_MAX_PAGE_COUNT = 828
+
+DEFAULT_MARGIN_PROFILE = "Standard"
+
+MARGIN_PROFILES = {
+    "Standard": {
+        "top": 0.75,
+        "bottom": 0.75,
+        "outside": 0.50,
+    },
+    "Compact KDP": {
+        "top": 0.50,
+        "bottom": 0.50,
+        "outside": 0.375,
+    },
+    "Minimum KDP": {
+        "top": 0.25,
+        "bottom": 0.25,
+        "outside": 0.25,
+    },
+}
