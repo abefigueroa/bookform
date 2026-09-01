@@ -1,6 +1,6 @@
 """book formatter to publish in KDP."""
 
-# Standard library imports
+# Standard library imports.
 import manuscript
 
 # Third-party imports
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
+    QImage,
     QTextBlockFormat,
     QTextCharFormat,
     QTextCursor,
@@ -91,10 +92,6 @@ class bookformwindow(QWidget):
         self.font_size_combo = QComboBox()
         self.font_size_combo.addItems([
             "8.5 pt",
-            "8.6 pt",
-            "8.65 pt",
-            "8.7 pt",
-            "8.75 pt",
             "9 pt",
             "10 pt",
             "11 pt",
@@ -164,6 +161,24 @@ class bookformwindow(QWidget):
 
         # existing preview used by current pagination
         self.page_preview = self.create_page_preview()
+
+        self.measurement_device = QImage(
+            int(constants.PRINT_PAGE_WIDTH_POINTS),
+            int(constants.PRINT_PAGE_HEIGHT_POINTS),
+            QImage.Format.Format_ARGB32,
+        )
+
+        self.measurement_device.setDotsPerMeterX(
+            constants.PRINT_DOTS_PER_METER
+        )
+
+        self.measurement_device.setDotsPerMeterY(
+            constants.PRINT_DOTS_PER_METER
+        )
+
+        self.page_preview.document().documentLayout().setPaintDevice(
+            self.measurement_device
+        )
         self.update_measurement_area()
 
         self.preview_layout.addLayout(spread_layout)
@@ -191,6 +206,8 @@ class bookformwindow(QWidget):
     # Methods
     def create_page_preview(self) -> QTextEdit:
         preview = QTextEdit()
+
+        preview.document().setDocumentMargin(0)
 
         preview.setFixedSize(
             constants.PREVIEW_WIDTH_PIXELS,
@@ -241,14 +258,27 @@ class bookformwindow(QWidget):
             padding-right: {outside_margin}px;
         """)
 
-    def apply_font_settings(self, preview: QTextEdit) -> None:
+    def apply_font_settings(
+        self,
+        preview: QTextEdit,
+    ) -> None:
         font_name = self.font_combo.currentText()
         size_text = self.font_size_combo.currentText()
         font_size = float(size_text.split()[0])
 
         font = preview.font()
         font.setFamily(font_name)
-        font.setPointSizeF(font_size)
+
+        if preview is self.page_preview:
+            font.setPointSizeF(font_size)
+        else:
+            preview_font_size = (
+                font_size
+                * constants.PIXELS_PER_INCH
+                / preview.logicalDpiY()
+            )
+            font.setPointSizeF(preview_font_size)
+
         preview.setFont(font)
 
     def show_page(self) -> None:
@@ -274,20 +304,6 @@ class bookformwindow(QWidget):
         else:
             self.right_page_preview.clear()
 
-        if left_index >= 0 and right_index < len(self.pages):
-            self.page_number_label.setText(
-                f"Pages {left_index + 1}–{right_index + 1} "
-                f"of {len(self.pages)}"
-            )
-        elif right_index < len(self.pages):
-            self.page_number_label.setText(
-            f"Page {right_index + 1} of {len(self.pages)}"
-            )
-        elif left_index >= 0:
-            self.page_number_label.setText(
-                f"Page {left_index + 1} of {len(self.pages)}"
-            )
-
         left_continues = (
             left_index >= 0
             and self.page_starts_with_continuation[left_index]
@@ -298,18 +314,45 @@ class bookformwindow(QWidget):
             and self.page_starts_with_continuation[right_index]
         )
 
+        self.apply_font_settings(
+            self.left_page_preview
+        )
+        self.apply_font_settings(
+            self.right_page_preview
+        )
+
         self.apply_paragraph_formatting(
             self.left_page_preview,
             left_continues,
         )
-
         self.apply_paragraph_formatting(
             self.right_page_preview,
             right_continues,
         )
 
-        self.apply_font_settings(self.left_page_preview)
-        self.apply_font_settings(self.right_page_preview)
+        if left_index >= 0 and right_index < len(self.pages):
+            self.page_number_label.setText(
+                f"Pages {left_index + 1}–{right_index + 1} "
+                f"of {len(self.pages)}"
+            )
+        elif right_index < len(self.pages):
+            self.page_number_label.setText(
+            f"Page {right_index + 1} of {len(self.pages)}"
+        )
+        elif left_index >= 0:
+            self.page_number_label.setText(
+                f"Page {left_index + 1} of {len(self.pages)}"
+            )
+        left_continues = (
+            left_index >= 0
+            and self.page_starts_with_continuation[left_index]
+        )
+
+        right_continues = (
+            right_index < len(self.pages)
+            and self.page_starts_with_continuation[right_index]
+        )
+
 
         print(
             "Left page:",
@@ -472,34 +515,31 @@ class bookformwindow(QWidget):
         profile_name = self.margin_profile_combo.currentText()
         profile = constants.MARGIN_PROFILES[profile_name]
 
-        top_margin = book_layout.inches_to_pixels(profile["top"])
-        bottom_margin = book_layout.inches_to_pixels(profile["bottom"])
-        outside_margin = book_layout.inches_to_pixels(profile["outside"])
-        gutter_margin = book_layout.inches_to_pixels(self.gutter_width)
+        top_margin = book_layout.inches_to_points(
+            profile["top"]
+        )
+        bottom_margin = book_layout.inches_to_points(
+            profile["bottom"]
+        )
+        outside_margin = book_layout.inches_to_points(
+            profile["outside"]
+        )
+        gutter_margin = book_layout.inches_to_points(
+            self.gutter_width
+        )
 
-        border_space = constants.PREVIEW_BORDER_PIXELS * 2
-
-        usable_width = (
-            constants.PREVIEW_WIDTH_PIXELS
+        self.measurement_width = (
+            constants.PRINT_PAGE_WIDTH_POINTS
             - gutter_margin
             - outside_margin
-            - border_space
         )
 
-        usable_height = (
-            constants.PREVIEW_HEIGHT_PIXELS
+        self.measurement_height = (
+            constants.PRINT_PAGE_HEIGHT_POINTS
             - top_margin
             - bottom_margin
-            - border_space
         )
 
-        self.measurement_width = usable_width
-        self.measurement_height = usable_height
-
-        self.page_preview.setFixedSize(
-            usable_width,
-            usable_height,
-        )
 
     def load_manuscript(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -602,11 +642,7 @@ class bookformwindow(QWidget):
         self.show_page()
 
     def update_font(self) -> None:
-        text = self.font_combo.currentText()
-        
-        font = self.page_preview.font()
-        font.setFamily(text)
-        self.page_preview.setFont(font)
+        self.apply_font_settings(self.page_preview)
 
         self.update_pages()
         self.show_page()
@@ -619,15 +655,25 @@ class bookformwindow(QWidget):
         spacing = float(self.line_spacing_combo.currentText())
         line_height = spacing * 100
 
-        first_line_indent = book_layout.inches_to_pixels(
-            constants.FIRST_LINE_INDENT_INCHES
-        )
+        if preview is self.page_preview:
+            first_line_indent = book_layout.inches_to_points(
+                constants.FIRST_LINE_INDENT_INCHES
+            )
+            heading_space_after = book_layout.inches_to_points(
+                constants.CHAPTER_HEADING_SPACE_AFTER_INCHES
+            )
+        else:
+            first_line_indent = book_layout.inches_to_pixels(
+                constants.FIRST_LINE_INDENT_INCHES
+            )
+            heading_space_after = book_layout.inches_to_pixels(
+                constants.CHAPTER_HEADING_SPACE_AFTER_INCHES
+            )
 
         document = preview.document()
         block = document.begin()
 
         previous_was_heading = False
-
         block_number = 0
 
         while block.isValid():
@@ -643,12 +689,12 @@ class bookformwindow(QWidget):
 
             if is_heading:
                 block_format.setTextIndent(0)
-                block_format.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                heading_space_after = book_layout.inches_to_pixels(
-                    constants.CHAPTER_HEADING_SPACE_AFTER_INCHES
+                block_format.setAlignment(
+                    Qt.AlignmentFlag.AlignCenter
                 )
-                block_format.setBottomMargin(heading_space_after)
+                block_format.setBottomMargin(
+                    heading_space_after
+                )
 
             elif previous_was_heading:
                 block_format.setTextIndent(0)
@@ -657,15 +703,26 @@ class bookformwindow(QWidget):
                 block_format.setTextIndent(0)
 
             else:
-                block_format.setTextIndent(first_line_indent)
+                block_format.setTextIndent(
+                    first_line_indent
+                )
 
             cursor = QTextCursor(block)
             cursor.setBlockFormat(block_format)
 
             if is_heading:
                 heading_format = QTextCharFormat()
+                if preview is self.page_preview:
+                    heading_font_size = constants.CHAPTER_HEADING_FONT_SIZE
+                else:
+                    heading_font_size = (
+                        constants.CHAPTER_HEADING_FONT_SIZE
+                        * constants.PIXELS_PER_INCH
+                        / preview.logicalDpiY()
+                    )
+
                 heading_format.setFontPointSize(
-                    constants.CHAPTER_HEADING_FONT_SIZE
+                    heading_font_size
                 )
 
                 cursor.movePosition(

@@ -14,3 +14,6 @@ def calculate_gutter_width(page_count: int) -> float:
 
 def inches_to_pixels(inches: float) -> int:
     return round(inches * constants.PIXELS_PER_INCH)
+
+def inches_to_points(inches: float) -> float:
+    return inches * constants.POINTS_PER_INCH
