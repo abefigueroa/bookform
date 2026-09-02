@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QFileDialog,
     QTextEdit,
+    QProgressBar,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
@@ -27,8 +28,13 @@ from docx import Document
 # Local imports
 import constants
 import book_layout
+import theme
 
 # Classes
+class PagePreview(QTextEdit):
+    def wheelEvent(self, event) -> None:
+        event.ignore()
+
 class bookformwindow(QWidget):
     """Controls the BookForm application window."""
 
@@ -36,15 +42,17 @@ class bookformwindow(QWidget):
         super().__init__()
 
         # application state
+        self.formatting_pending = False
         self.current_page = 0
         self.pages = []
         self.paragraphs = []
         self.page_starts_with_continuation = []
         self.gutter_width = 0.375
-
+        
         # window configuration
         self.setWindowTitle("BookForm")
         self.resize(800, 600)
+        self.setStyleSheet(theme.BOOKFORM_STYLESHEET)
 
         # layout setup
         self.layout = QHBoxLayout()
@@ -80,8 +88,8 @@ class bookformwindow(QWidget):
             "Palatino Linotype",
         ])
 
-        self.font_combo.currentTextChanged.connect(
-            self.update_font
+        self.font_combo.activated.connect(
+            self.mark_formatting_pending
         )
 
         self.controls_layout.addWidget(font_label)
@@ -98,8 +106,8 @@ class bookformwindow(QWidget):
             "12 pt",
         ])
 
-        self.font_size_combo.currentTextChanged.connect(
-            self.update_font_size
+        self.font_size_combo.activated.connect(
+            self.mark_formatting_pending
         )
 
         self.controls_layout.addWidget(font_size_label)
@@ -114,8 +122,8 @@ class bookformwindow(QWidget):
             "1.5",
         ])
 
-        self.line_spacing_combo.currentTextChanged.connect(
-            self.line_spacing_changed
+        self.line_spacing_combo.activated.connect(
+            self.mark_formatting_pending
         )
 
         self.controls_layout.addWidget(line_spacing_label)
@@ -132,12 +140,35 @@ class bookformwindow(QWidget):
             constants.DEFAULT_MARGIN_PROFILE
         )
 
-        self.margin_profile_combo.currentTextChanged.connect(
-            self.margin_profile_changed
+        self.margin_profile_combo.activated.connect(
+            self.mark_formatting_pending
         )
 
         self.controls_layout.addWidget(margin_profile_label)
         self.controls_layout.addWidget(self.margin_profile_combo)
+
+        self.apply_changes_button = QPushButton("Apply Changes")
+
+        self.formatting_status_label = QLabel("")
+        self.controls_layout.addWidget(
+            self.formatting_status_label
+        )
+
+        self.formatting_progress = QProgressBar()
+        self.formatting_progress.setRange(0, 0)
+        self.formatting_progress.hide()
+
+        self.controls_layout.addWidget(
+            self.formatting_progress
+        )
+
+        self.apply_changes_button.clicked.connect(
+            self.apply_changes
+        )
+
+        self.controls_layout.addWidget(
+            self.apply_changes_button
+        )
 
         # manuscript controls
         self.load_button = QPushButton("Load Manuscript")
@@ -204,8 +235,53 @@ class bookformwindow(QWidget):
         self.preview_layout.addLayout(navigation_layout)
 
     # Methods
+    def load_manuscript(self) -> None:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select Manuscript",
+                "",
+                "Word Documents (*.docx)"
+            )
+    
+            if file_path:
+                document = Document(file_path)
+                styles_found = set()
+    
+                self.paragraphs = []
+    
+                for paragraph in document.paragraphs:
+                    styles_found.add(paragraph.style.name)
+    
+                    if paragraph.text.strip():
+                        self.paragraphs.append(paragraph.text)
+    
+                print(
+                    f"Measurement area: "
+                    f"{self.measurement_width} x "
+                    f"{self.measurement_height}"
+                )
+                print("Starting pagination...")
+                self.pages = []
+                self.current_page = 0
+                self.formatting_pending = True
+                self.formatting_status_label.setText(
+                    "Formatting changes pending"
+                )
+
+                self.left_page_preview.clear()
+                self.right_page_preview.clear()
+
+                self.page_number_label.setText("Page 0 of 0")
+
+    def mark_formatting_pending(self, _index: int) -> None:
+        self.formatting_pending = True
+
+        self.formatting_status_label.setText(
+            "Formatting changes pending"
+        )
+
     def create_page_preview(self) -> QTextEdit:
-        preview = QTextEdit()
+        preview = PagePreview()
 
         preview.document().setDocumentMargin(0)
 
@@ -242,7 +318,7 @@ class bookformwindow(QWidget):
 
         self.left_page_preview.setStyleSheet(f"""
             background-color: white;
-            border: 1px solid gray;
+            border: 0px solid gray;
             padding-top: {top_margin}px;
             padding-bottom: {bottom_margin}px;
             padding-left: {outside_margin}px;
@@ -251,7 +327,7 @@ class bookformwindow(QWidget):
 
         self.right_page_preview.setStyleSheet(f"""
             background-color: white;
-            border: 1px solid gray;
+            border: 0px solid gray;
             padding-top: {top_margin}px;
             padding-bottom: {bottom_margin}px;
             padding-left: {gutter_margin}px;
@@ -266,20 +342,35 @@ class bookformwindow(QWidget):
         size_text = self.font_size_combo.currentText()
         font_size = float(size_text.split()[0])
 
-        font = preview.font()
-        font.setFamily(font_name)
-
         if preview is self.page_preview:
-            font.setPointSizeF(font_size)
+            applied_font_size = font_size
         else:
-            preview_font_size = (
+            applied_font_size = (
                 font_size
                 * constants.PIXELS_PER_INCH
                 / preview.logicalDpiY()
             )
-            font.setPointSizeF(preview_font_size)
+
+        font = preview.font()
+        font.setFamily(font_name)
+        font.setPointSizeF(applied_font_size)
 
         preview.setFont(font)
+        preview.document().setDefaultFont(font)
+
+        cursor = QTextCursor(
+            preview.document()
+        )
+        cursor.select(
+            QTextCursor.SelectionType.Document
+        )
+
+        body_format = QTextCharFormat()
+        body_format.setFont(font)
+
+        cursor.setCharFormat(
+            body_format
+        )
 
     def show_page(self) -> None:
         if not self.pages:
@@ -343,32 +434,6 @@ class bookformwindow(QWidget):
             self.page_number_label.setText(
                 f"Page {left_index + 1} of {len(self.pages)}"
             )
-        left_continues = (
-            left_index >= 0
-            and self.page_starts_with_continuation[left_index]
-        )
-
-        right_continues = (
-            right_index < len(self.pages)
-            and self.page_starts_with_continuation[right_index]
-        )
-
-
-        print(
-            "Left page:",
-            f"viewport={self.left_page_preview.viewport().width()}x"
-            f"{self.left_page_preview.viewport().height()}",
-            f"document={self.left_page_preview.document().size().width():.1f}x"
-            f"{self.left_page_preview.document().size().height():.1f}",
-        )
-
-        print(
-            "Right page:",
-            f"viewport={self.right_page_preview.viewport().width()}x"
-            f"{self.right_page_preview.viewport().height()}",
-            f"document={self.right_page_preview.document().size().width():.1f}x"
-            f"{self.right_page_preview.document().size().height():.1f}",
-        )
 
 
     def previous_page(self) -> None:
@@ -390,7 +455,12 @@ class bookformwindow(QWidget):
         current_page_text = ""
         current_page_starts_with_continuation = False
 
-        for paragraph in self.paragraphs:
+        for paragraph_index, paragraph in enumerate(
+            self.paragraphs
+        ):
+            if paragraph_index % 25 == 0:
+                QApplication.processEvents()
+
             if manuscript.is_chapter_heading(paragraph):
                 if current_page_text:
                     self.add_page(
@@ -539,39 +609,6 @@ class bookformwindow(QWidget):
             - top_margin
             - bottom_margin
         )
-
-
-    def load_manuscript(self) -> None:
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Manuscript",
-            "",
-            "Word Documents (*.docx)"
-        )
-
-        if file_path:
-            document = Document(file_path)
-            styles_found = set()
-
-            self.paragraphs = []
-
-            for paragraph in document.paragraphs:
-                styles_found.add(paragraph.style.name)
-
-                if paragraph.text.strip():
-                    self.paragraphs.append(paragraph.text)
-
-            print(
-                f"Measurement area: "
-                f"{self.measurement_width} x "
-                f"{self.measurement_height}"
-            )
-            print("Starting pagination...")
-            self.update_pages()        
-
-            self.current_page = 0
-            self.show_page()
-
 
     def text_fits_page(
         self,
@@ -758,6 +795,37 @@ class bookformwindow(QWidget):
         self.page_starts_with_continuation.append(
             starts_with_continuation
     )
+
+    def apply_changes(self) -> None:
+        if not self.paragraphs:
+            return
+
+        self.formatting_status_label.setText(
+            "Formatting manuscript, please wait..."
+        )
+        self.formatting_progress.show()
+        self.apply_changes_button.setEnabled(False)
+
+        QApplication.processEvents()
+
+        try:
+            self.apply_font_settings(
+                self.page_preview
+            )
+
+            self.update_measurement_area()
+            self.update_pages()
+
+            self.current_page = 0
+            self.show_page()
+
+            self.formatting_pending = False
+            self.formatting_status_label.setText("")
+
+        finally:
+            self.formatting_progress.hide()
+            self.apply_changes_button.setEnabled(True)
+
 
 # Functions
 
