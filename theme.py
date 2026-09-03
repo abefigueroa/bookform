@@ -1,4 +1,42 @@
 BOOKFORM_STYLESHEET = """
+QMenuBar#mainMenuBar {
+    background-color: #C8C8C8;
+    color: #000000;
+    border: none;
+}
+
+QMenuBar#mainMenuBar::item {
+    background-color: #C8C8C8;
+    color: #000000;
+    padding: 4px 10px;
+}
+
+QMenuBar#mainMenuBar::item:selected {
+    background-color: #AFAFAF;
+    color: #000000;
+}
+
+QMenu {
+    background-color: #E6E6E6;
+    color: #000000;
+    border: 1px solid #A0A0A0;
+    padding: 0px;
+}
+
+QMenu::item {
+    background-color: #E6E6E6;
+    color: #000000;
+    border: none;
+    margin: 0px;
+    padding: 5px 24px 5px 10px;
+}
+
+QMenu::item:selected {
+    background-color: #BFBFBF;
+    color: #000000;
+    border: none;
+}
+
 QWidget {
     background-color: #20382B;
     color: #F2F5F2;

@@ -1,6 +1,8 @@
 """book formatter to publish in KDP."""
 
 # Standard library imports.
+from operator import index
+
 import manuscript
 
 # Third-party imports
@@ -15,6 +17,9 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QTextEdit,
     QProgressBar,
+    QMenuBar,
+    QDialog,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
@@ -29,6 +34,7 @@ from docx import Document
 import constants
 import book_layout
 import theme
+import front_matter
 
 # Classes
 class PagePreview(QTextEdit):
@@ -48,6 +54,8 @@ class bookformwindow(QWidget):
         self.paragraphs = []
         self.page_starts_with_continuation = []
         self.gutter_width = 0.375
+
+        self.front_matter = front_matter.FrontMatter()
         
         # window configuration
         self.setWindowTitle("BookForm")
@@ -55,8 +63,79 @@ class bookformwindow(QWidget):
         self.setStyleSheet(theme.BOOKFORM_STYLESHEET)
 
         # layout setup
+        self.outer_layout = QVBoxLayout(self)
+        self.outer_layout.setContentsMargins(0, 0, 0, 0)
+        self.outer_layout.setSpacing(0)
+
         self.layout = QHBoxLayout()
-        self.setLayout(self.layout)
+
+        self.menu_bar = QMenuBar()
+
+        self.menu_bar.setObjectName("mainMenuBar")
+
+        self.file_menu = self.menu_bar.addMenu(
+            "File"
+        )
+
+        self.load_manuscript_action = (
+            self.file_menu.addAction(
+                "Load Manuscript..."
+            )
+        )
+
+        self.file_menu.addSeparator()
+
+        self.front_matter_menu = (
+            self.file_menu.addMenu(
+                "Front Matter"
+            )       
+        )
+
+        self.title_page_action = (
+            self.front_matter_menu.addAction(
+                "Title Page"
+            )
+        )
+
+        self.title_page_action.triggered.connect(
+            self.configure_title_page
+        )
+
+        self.copyright_action = (
+            self.front_matter_menu.addAction(
+                "Copyright"
+            )
+        )
+
+        self.dedication_action = (
+            self.front_matter_menu.addAction(
+                "Dedication"
+            )
+        )
+
+        self.map_action = (
+            self.front_matter_menu.addAction(
+                "Map"
+            )
+        )
+
+        self.trigger_warnings_action = (
+            self.front_matter_menu.addAction(
+                "Trigger Warnings"
+            )
+        )
+
+        self.load_manuscript_action.triggered.connect(
+            self.load_manuscript
+        )
+
+        self.outer_layout.addWidget(
+            self.menu_bar
+        )
+
+        self.outer_layout.addLayout(
+            self.layout
+        )
 
         # panel creation
         self.controls_panel = QWidget()
@@ -171,16 +250,18 @@ class bookformwindow(QWidget):
         )
 
         # manuscript controls
-        self.load_button = QPushButton("Load Manuscript")
-        self.load_button = QPushButton("Load Manuscript")
-        self.load_button.clicked.connect(self.load_manuscript)
-        self.controls_layout.addWidget(self.load_button)
-
         self.controls_layout.addStretch()
 
         # preview setup
-        preview_title = QLabel("Book Preview")
-        self.preview_layout.addWidget(preview_title)
+        self.preview_label = QLabel("Book Preview")
+
+        self.preview_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+        self.preview_layout.addWidget(
+            self.preview_label
+        )
 
         # future two-page spread
         self.left_page_preview = self.create_page_preview()
@@ -254,13 +335,8 @@ class bookformwindow(QWidget):
     
                     if paragraph.text.strip():
                         self.paragraphs.append(paragraph.text)
-    
-                print(
-                    f"Measurement area: "
-                    f"{self.measurement_width} x "
-                    f"{self.measurement_height}"
-                )
-                print("Starting pagination...")
+
+                
                 self.pages = []
                 self.current_page = 0
                 self.formatting_pending = True
@@ -272,6 +348,46 @@ class bookformwindow(QWidget):
                 self.right_page_preview.clear()
 
                 self.page_number_label.setText("Page 0 of 0")
+
+    def configure_title_page(self) -> None:
+        if not self.paragraphs:
+            QMessageBox.warning(
+                self,
+                "No Manuscript Loaded",
+                "Load a manuscript before identifying the title page.",
+            )
+            return
+
+        dialog = front_matter.TitlePageDialog(self)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        title, subtitle, author = dialog.values()
+
+        title_page = front_matter.find_title_page(
+            self.paragraphs,
+            title,
+            subtitle,
+            author,
+        )
+
+        if title_page is None:
+            QMessageBox.warning(
+                self,
+                "Title Page Not Found",
+                "BookForm could not find all of the specified "
+                "title page text in the manuscript.",
+            )
+            return
+
+        self.front_matter.title_page = title_page
+
+        QMessageBox.information(
+            self,
+            "Title Page Found",
+            "The title page was found in the manuscript.",
+        )
 
     def mark_formatting_pending(self, _index: int) -> None:
         self.formatting_pending = True
@@ -460,6 +576,40 @@ class bookformwindow(QWidget):
         ):
             if paragraph_index % 25 == 0:
                 QApplication.processEvents()
+
+            title_page = self.front_matter.title_page
+
+            if (
+                title_page is not None
+                and title_page.start_index is not None
+                and title_page.end_index is not None
+                and title_page.start_index
+                <= paragraph_index
+                <= title_page.end_index
+            ):
+                if paragraph_index == title_page.start_index:
+                    if current_page_text:
+                        self.add_page(
+                            current_page_text,
+                            current_page_starts_with_continuation,
+                        )
+
+                        current_page_text = ""
+                        current_page_starts_with_continuation = False
+
+                    title_page_text = "\n".join(
+                        self.paragraphs[
+                            title_page.start_index:
+                            title_page.end_index + 1
+                        ]
+                    )
+
+                    self.add_page(
+                        title_page_text,
+                        False,
+                    )
+
+                continue
 
             if manuscript.is_chapter_heading(paragraph):
                 if current_page_text:
