@@ -8,7 +8,9 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QLabel,
     QLineEdit,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -38,6 +40,47 @@ class FrontMatter:
     copyright: TextSection | None = None
     trigger_warnings: TextSection | None = None
     map_file: str | None = None
+
+
+class DedicationDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self.setWindowTitle("Dedication")
+
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(
+            QLabel(
+                "Enter the dedication text to find "
+                "in the manuscript:"
+            )
+        )
+
+        self.text_edit = QTextEdit()
+        layout.addWidget(
+            self.text_edit
+        )
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+
+        buttons.accepted.connect(
+            self.accept
+        )
+        buttons.rejected.connect(
+            self.reject
+        )
+
+        layout.addWidget(buttons)
+
+    def value(self) -> str:
+        return self.text_edit.toPlainText().strip()
 
 
 class TitlePageDialog(QDialog):
@@ -169,3 +212,47 @@ def load_text_file(file_path: str) -> str:
     return path.read_text(
         encoding="utf-8"
     )
+
+def find_text_section(
+        paragraphs: list[str],
+        text: str,
+    ) -> TextSection | None:
+        search_paragraphs = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip()
+        ]
+
+        if not search_paragraphs:
+            return None
+
+        normalized_search = [
+            normalize_text(line)
+            for line in search_paragraphs
+        ]
+
+        section_length = len(normalized_search)
+
+        for start_index in range(
+            len(paragraphs) - section_length + 1
+        ):
+            candidate = [
+                normalize_text(paragraph)
+                for paragraph in paragraphs[
+                    start_index:
+                    start_index + section_length
+                ]
+            ]
+
+            if candidate == normalized_search:
+                return TextSection(
+                    text=text,
+                    start_index=start_index,
+                    end_index=(
+                        start_index
+                        + section_length
+                        - 1
+                    ),
+                )
+
+        return None

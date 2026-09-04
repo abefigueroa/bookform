@@ -54,6 +54,7 @@ class bookformwindow(QWidget):
         self.paragraphs = []
         self.page_starts_with_continuation = []
         self.gutter_width = 0.375
+        self.page_types = []
 
         self.front_matter = front_matter.FrontMatter()
         
@@ -111,6 +112,10 @@ class bookformwindow(QWidget):
             self.front_matter_menu.addAction(
                 "Dedication"
             )
+        )
+
+        self.dedication_action.triggered.connect(
+            self.configure_dedication
         )
 
         self.map_action = (
@@ -383,10 +388,86 @@ class bookformwindow(QWidget):
 
         self.front_matter.title_page = title_page
 
+        self.formatting_pending = True
+        self.formatting_status_label.setText(
+            "Formatting changes pending"
+        )
+
+        print(
+            "Title page range:",
+            title_page.start_index,
+            "to",
+            title_page.end_index,
+        )
+
+        print("Title page paragraphs:")
+
+        for index in range(
+            title_page.start_index,
+            title_page.end_index + 1,
+        ):
+            print(
+                index,
+                repr(self.paragraphs[index]),
+            )
+
         QMessageBox.information(
             self,
             "Title Page Found",
             "The title page was found in the manuscript.",
+        )
+
+    def configure_dedication(self) -> None:
+        if not self.paragraphs:
+            QMessageBox.warning(
+                self,
+                "No Manuscript Loaded",
+                "Load a manuscript before identifying the dedication.",
+            )
+            return
+        
+        dialog = front_matter.DedicationDialog(
+            self
+        )
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        dedication_text = dialog.value()
+
+        if not dedication_text:
+            QMessageBox.warning(
+                self,
+                "No Dedication",
+                "No dedication text was provided.",
+            )
+            return
+
+        dedication = front_matter.find_text_section(
+            self.paragraphs,
+            dedication_text,
+        )  
+
+        if dedication is None:
+            QMessageBox.warning(
+                self,
+                "Dedication Not Found",
+                "BookForm could not find that "
+                "dedication text in the manuscript.",
+            )
+            return
+
+        self.front_matter.dedication = dedication
+
+        self.formatting_pending = True
+        self.formatting_status_label.setText(
+            "Formatting changes pending"
+        )
+
+        QMessageBox.information(
+            self,
+            "Dedication Ready",
+            "The dedication was found in the manuscript.",
         )
 
     def mark_formatting_pending(self, _index: int) -> None:
@@ -528,14 +609,43 @@ class bookformwindow(QWidget):
             self.right_page_preview
         )
 
-        self.apply_paragraph_formatting(
-            self.left_page_preview,
-            left_continues,
-        )
-        self.apply_paragraph_formatting(
-            self.right_page_preview,
-            right_continues,
-        )
+        if left_index >= 0:
+            left_page_type = self.page_types[left_index]
+
+            if left_page_type == "title_page":
+                self.apply_title_page_formatting(
+                    self.left_page_preview
+                )
+
+            elif left_page_type == "dedication":
+                self.apply_dedication_formatting(
+                    self.left_page_preview
+                )
+
+            else:
+                self.apply_paragraph_formatting(
+                    self.left_page_preview,
+                    left_continues,
+                )
+
+        if right_index < len(self.pages):
+            right_page_type = self.page_types[right_index]
+
+            if right_page_type == "title_page":
+                self.apply_title_page_formatting(
+                    self.right_page_preview
+                )
+
+            elif right_page_type == "dedication":
+                self.apply_dedication_formatting(
+                    self.right_page_preview
+                )
+
+            else:
+                self.apply_paragraph_formatting(
+                    self.right_page_preview,
+                    right_continues,
+                )
 
         if left_index >= 0 and right_index < len(self.pages):
             self.page_number_label.setText(
@@ -567,6 +677,7 @@ class bookformwindow(QWidget):
     def update_pages(self) -> None:
         self.pages = []
         self.page_starts_with_continuation = []
+        self.page_types = []
 
         current_page_text = ""
         current_page_starts_with_continuation = False
@@ -607,6 +718,42 @@ class bookformwindow(QWidget):
                     self.add_page(
                         title_page_text,
                         False,
+                        page_type="title_page",
+                    )
+
+                continue
+
+            dedication = self.front_matter.dedication
+
+            if (
+                dedication is not None
+                and dedication.start_index is not None
+                and dedication.end_index is not None
+                and dedication.start_index
+                <= paragraph_index
+                <= dedication.end_index
+            ):
+                if paragraph_index == dedication.start_index:
+                    if current_page_text:
+                        self.add_page(
+                            current_page_text,
+                            current_page_starts_with_continuation,
+                        )
+
+                        current_page_text = ""
+                        current_page_starts_with_continuation = False
+
+                    dedication_text = "\n".join(
+                        self.paragraphs[
+                            dedication.start_index:
+                            dedication.end_index + 1
+                        ]
+                    )
+
+                    self.add_page(
+                        dedication_text,
+                        False,
+                        page_type="dedication",
                     )
 
                 continue
@@ -926,6 +1073,126 @@ class bookformwindow(QWidget):
             block_number += 1
             block = block.next()
 
+    def apply_title_page_formatting(
+        self,
+        preview: QTextEdit,
+    ) -> None:
+        document = preview.document()
+        block = document.begin()
+        block_number = 0
+
+        while block.isValid():
+            block_format = QTextBlockFormat()
+
+            block_format.setAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+            block_format.setTextIndent(0)
+
+            if block_number == 0:
+                if preview is self.page_preview:
+                    top_space = book_layout.inches_to_points(
+                        constants.TITLE_PAGE_TOP_SPACE_INCHES
+                    )
+                else:
+                    top_space = book_layout.inches_to_pixels(
+                        constants.TITLE_PAGE_TOP_SPACE_INCHES
+                    )
+
+                block_format.setTopMargin(
+                    top_space
+                )
+
+            if block_number == 1:
+                if preview is self.page_preview:
+                    author_space = book_layout.inches_to_points(
+                        constants.TITLE_PAGE_AUTHOR_SPACE_INCHES
+                    )
+                else:
+                    author_space = book_layout.inches_to_pixels(
+                        constants.TITLE_PAGE_AUTHOR_SPACE_INCHES
+                    )
+
+                block_format.setBottomMargin(
+                    author_space
+                )
+
+            cursor = QTextCursor(block)
+            cursor.setBlockFormat(block_format)
+
+            text_format = QTextCharFormat()
+
+            if block_number == 0:
+                font_size = 20
+            elif block_number == 1:
+                font_size = 14
+            else:
+                font_size = 12
+
+            if preview is not self.page_preview:
+                font_size = (
+                    font_size
+                    * constants.PIXELS_PER_INCH
+                    / preview.logicalDpiY()
+                )
+
+            text_format.setFontPointSize(
+                font_size
+            )
+
+            cursor.movePosition(
+                QTextCursor.MoveOperation.StartOfBlock
+            )
+            cursor.movePosition(
+                QTextCursor.MoveOperation.EndOfBlock,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+
+            cursor.setCharFormat(
+                text_format
+            )
+
+            block_number += 1
+            block = block.next()
+
+    def apply_dedication_formatting(
+        self,
+        preview: QTextEdit,
+    ) -> None:
+        if preview is self.page_preview:
+            top_space = book_layout.inches_to_points(
+                constants.DEDICATION_TOP_SPACE_INCHES
+            )
+        else:
+            top_space = book_layout.inches_to_pixels(
+                constants.DEDICATION_TOP_SPACE_INCHES
+            )
+
+        document = preview.document()
+        block = document.begin()
+        block_number = 0
+
+        while block.isValid():
+            block_format = QTextBlockFormat()
+
+            block_format.setAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+            block_format.setTextIndent(0)
+
+            if block_number == 0:
+                block_format.setTopMargin(
+                    top_space
+                )
+
+            cursor = QTextCursor(block)
+            cursor.setBlockFormat(
+                block_format
+            )
+
+            block_number += 1
+            block = block.next()
+
     def line_spacing_changed(self) -> None:
         self.apply_paragraph_formatting(self.page_preview)
         self.update_pages()
@@ -940,11 +1207,17 @@ class bookformwindow(QWidget):
         self,
         text: str,
         starts_with_continuation: bool = False,
+        page_type: str = "body",
     ) -> None:
         self.pages.append(text)
+
         self.page_starts_with_continuation.append(
             starts_with_continuation
-    )
+        )
+
+        self.page_types.append(
+            page_type
+        )
 
     def apply_changes(self) -> None:
         if not self.paragraphs:
