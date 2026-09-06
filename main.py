@@ -2,8 +2,8 @@
 
 # Standard library imports.
 from operator import index
-
 import manuscript
+from pathlib import Path
 
 # Third-party imports
 from PySide6.QtWidgets import (
@@ -106,6 +106,10 @@ class bookformwindow(QWidget):
             self.front_matter_menu.addAction(
                 "Copyright"
             )
+        )
+
+        self.copyright_action.triggered.connect(
+            self.configure_copyright
         )
 
         self.dedication_action = (
@@ -470,6 +474,62 @@ class bookformwindow(QWidget):
             "The dedication was found in the manuscript.",
         )
 
+    def configure_copyright(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Copyright File",
+            "",
+            (
+                "Copyright Documents "
+                "(*.docx *.txt)"
+            ),
+        )
+
+        if not file_path:
+            return
+
+        try:
+            copyright_text = (
+                front_matter.load_text_file(
+                    file_path
+                )
+            )
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(
+                self,
+                "Copyright File Error",
+                str(error),
+            )
+            return
+
+        if not copyright_text.strip():
+            QMessageBox.warning(
+                self,
+                "Empty Copyright File",
+                "The selected file does not contain "
+                "any copyright text.",
+            )
+            return
+
+        self.front_matter.copyright = (
+            front_matter.TextSection(
+                text=copyright_text,
+                source_file=file_path,
+            )
+        )
+
+        self.formatting_pending = True
+
+        self.formatting_status_label.setText(
+            "Formatting changes pending"
+        )
+
+        QMessageBox.information(
+            self,
+            "Copyright Loaded",
+            "The copyright information was loaded successfully.",
+        )
+
     def mark_formatting_pending(self, _index: int) -> None:
         self.formatting_pending = True
 
@@ -622,6 +682,11 @@ class bookformwindow(QWidget):
                     self.left_page_preview
                 )
 
+            elif left_page_type == "copyright":
+                self.apply_copyright_formatting(
+                    self.left_page_preview
+                )
+
             else:
                 self.apply_paragraph_formatting(
                     self.left_page_preview,
@@ -638,6 +703,11 @@ class bookformwindow(QWidget):
 
             elif right_page_type == "dedication":
                 self.apply_dedication_formatting(
+                    self.right_page_preview
+                )
+
+            elif right_page_type == "copyright":
+                self.apply_copyright_formatting(
                     self.right_page_preview
                 )
 
@@ -714,12 +784,19 @@ class bookformwindow(QWidget):
                             title_page.end_index + 1
                         ]
                     )
-
+                    # Title Page insert
                     self.add_page(
                         title_page_text,
                         False,
                         page_type="title_page",
                     )
+                    # Copyright Page insert
+                    if self.front_matter.copyright is not None:
+                        self.add_page(
+                            self.front_matter.copyright.text,
+                            False,
+                            page_type="copyright",
+                        )
 
                 continue
 
@@ -981,6 +1058,7 @@ class bookformwindow(QWidget):
         self.update_pages()
         self.show_page()
 
+    # Page Formatting
     def apply_paragraph_formatting(
         self,
         preview: QTextEdit,
@@ -1193,6 +1271,75 @@ class bookformwindow(QWidget):
             block_number += 1
             block = block.next()
 
+    def apply_copyright_formatting(
+        self,
+        preview: QTextEdit,
+    ) -> None:
+        if preview is self.page_preview:
+            top_space = book_layout.inches_to_points(
+                constants.COPYRIGHT_TOP_SPACE_INCHES
+            )
+            font_size = constants.COPYRIGHT_FONT_SIZE
+        else:
+            top_space = book_layout.inches_to_pixels(
+                constants.COPYRIGHT_TOP_SPACE_INCHES
+            )
+            font_size = (
+                constants.COPYRIGHT_FONT_SIZE
+                * constants.PIXELS_PER_INCH
+                / preview.logicalDpiY()
+            )
+
+        document = preview.document()
+        block = document.begin()
+        block_number = 0
+
+        while block.isValid():
+            block_format = QTextBlockFormat()
+
+            block_format.setAlignment(
+                Qt.AlignmentFlag.AlignLeft
+            )
+
+            block_format.setTextIndent(0)
+
+            block_format.setLineHeight(
+                100,
+                QTextBlockFormat.LineHeightTypes.ProportionalHeight.value,
+            )
+
+            if block_number == 0:
+                block_format.setTopMargin(
+                    top_space
+                )
+
+            cursor = QTextCursor(block)
+
+            cursor.setBlockFormat(
+                block_format
+            )
+
+            text_format = QTextCharFormat()
+            text_format.setFontPointSize(
+                font_size
+            )
+
+            cursor.movePosition(
+                QTextCursor.MoveOperation.StartOfBlock
+            )
+
+            cursor.movePosition(
+                QTextCursor.MoveOperation.EndOfBlock,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+
+            cursor.setCharFormat(
+                text_format
+            )
+
+            block_number += 1
+            block = block.next()
+
     def line_spacing_changed(self) -> None:
         self.apply_paragraph_formatting(self.page_preview)
         self.update_pages()
@@ -1261,6 +1408,28 @@ def has_numbering(paragraph) -> bool:
     return (
         paragraph_properties is not None
         and paragraph_properties.numPr is not None
+    )
+
+def load_text_file(
+    file_path: str,
+) -> str:
+    path = Path(file_path)
+
+    if path.suffix.lower() == ".docx":
+        document = Document(file_path)
+
+        return "\n".join(
+            paragraph.text
+            for paragraph in document.paragraphs
+        )
+
+    if path.suffix.lower() == ".txt":
+        return path.read_text(
+            encoding="utf-8"
+        )
+
+    raise ValueError(
+        "Unsupported file type."
     )
 
 
