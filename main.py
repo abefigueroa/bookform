@@ -21,12 +21,14 @@ from PySide6.QtWidgets import (
     QDialog,
     QMessageBox,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import (
     QImage,
     QTextBlockFormat,
     QTextCharFormat,
     QTextCursor,
+    QTextDocument,
+    QTextImageFormat,
 )
 from docx import Document
 
@@ -35,6 +37,7 @@ import constants
 import book_layout
 import theme
 import front_matter
+import page_assembly
 
 # Classes
 class PagePreview(QTextEdit):
@@ -128,10 +131,18 @@ class bookformwindow(QWidget):
             )
         )
 
+        self.map_action.triggered.connect(
+            self.configure_map
+        )
+
         self.trigger_warnings_action = (
             self.front_matter_menu.addAction(
                 "Trigger Warnings"
             )
+        )
+
+        self.trigger_warnings_action.triggered.connect(
+            self.configure_trigger_warnings
         )
 
         self.load_manuscript_action.triggered.connect(
@@ -242,6 +253,18 @@ class bookformwindow(QWidget):
             self.formatting_status_label
         )
 
+        self.front_matter_status_label = QLabel(
+            "Front Matter Added: None"
+        )
+
+        self.front_matter_status_label.setWordWrap(
+            True
+        )
+
+        self.controls_layout.addWidget(
+            self.front_matter_status_label
+        )
+
         self.formatting_progress = QProgressBar()
         self.formatting_progress.setRange(0, 0)
         self.formatting_progress.hide()
@@ -335,6 +358,10 @@ class bookformwindow(QWidget):
     
             if file_path:
                 document = Document(file_path)
+
+                self.front_matter = front_matter.FrontMatter()
+                self.update_front_matter_status()
+
                 styles_found = set()
     
                 self.paragraphs = []
@@ -391,6 +418,7 @@ class bookformwindow(QWidget):
             return
 
         self.front_matter.title_page = title_page
+        self.update_front_matter_status()
 
         self.formatting_pending = True
         self.formatting_status_label.setText(
@@ -462,6 +490,7 @@ class bookformwindow(QWidget):
             return
 
         self.front_matter.dedication = dedication
+        self.update_front_matter_status()
 
         self.formatting_pending = True
         self.formatting_status_label.setText(
@@ -517,6 +546,7 @@ class bookformwindow(QWidget):
                 source_file=file_path,
             )
         )
+        self.update_front_matter_status()
 
         self.formatting_pending = True
 
@@ -528,6 +558,150 @@ class bookformwindow(QWidget):
             self,
             "Copyright Loaded",
             "The copyright information was loaded successfully.",
+        )
+
+    def configure_trigger_warnings(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Trigger Warnings File",
+            "",
+            (
+                "Trigger Warning Documents "
+                "(*.docx *.txt)"
+            ),
+        )
+
+        if not file_path:
+            return
+
+        try:
+            trigger_warnings_text = (
+                front_matter.load_text_file(
+                    file_path
+                )
+            )
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(
+                self,
+                "Trigger Warnings File Error",
+                str(error),
+            )
+            return
+
+        if not trigger_warnings_text.strip():
+            QMessageBox.warning(
+                self,
+                "Empty Trigger Warnings File",
+                "The selected file does not contain "
+                "any trigger warning text.",
+            )
+            return
+
+        self.front_matter.trigger_warnings = (
+            front_matter.TextSection(
+                text=trigger_warnings_text,
+                source_file=file_path,
+            )
+        )
+        self.update_front_matter_status()
+
+        self.formatting_pending = True
+
+        self.formatting_status_label.setText(
+            "Formatting changes pending"
+        )
+
+        QMessageBox.information(
+            self,
+            "Trigger Warnings Loaded",
+            "The trigger warnings were loaded successfully.",
+        )
+
+    def configure_map(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Map Image",
+            "",
+            "Image Files (*.png *.jpg *.jpeg)",
+        )
+
+        if not file_path:
+            return
+
+        self.front_matter.map_file = file_path
+        self.update_front_matter_status()
+
+        self.formatting_pending = True
+        self.formatting_status_label.setText(
+            "Formatting changes pending"
+        )
+
+        QMessageBox.information(
+            self,
+            "Map Loaded",
+            "The map image was loaded successfully.",
+        )
+
+    def show_map_page(
+        self,
+        preview: QTextEdit,
+        image_path: str,
+    ) -> None:
+        image = QImage(image_path)
+
+        if image.isNull():
+            preview.setPlainText(
+                "Unable to load map image."
+            )
+            return
+
+        preview.clear()
+
+        max_width = preview.viewport().width()
+        max_height = preview.viewport().height()
+
+        scaled_size = image.size()
+        scaled_size.scale(
+            max_width,
+            max_height,
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
+
+        document = preview.document()
+
+        image_url = QUrl.fromLocalFile(
+            image_path
+        )
+
+        document.addResource(
+            QTextDocument.ResourceType.ImageResource,
+            image_url,
+            image,
+        )
+
+        cursor = QTextCursor(document)
+
+        block_format = QTextBlockFormat()
+        block_format.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+        cursor.setBlockFormat(
+            block_format
+        )
+
+        image_format = QTextImageFormat()
+        image_format.setName(
+            image_url.toString()
+        )
+        image_format.setWidth(
+            scaled_size.width()
+        )
+        image_format.setHeight(
+            scaled_size.height()
+        )
+
+        cursor.insertImage(
+            image_format
         )
 
     def mark_formatting_pending(self, _index: int) -> None:
@@ -639,16 +813,40 @@ class bookformwindow(QWidget):
         left_index = right_index - 1
 
         if left_index >= 0:
-            self.left_page_preview.setPlainText(
-                self.pages[left_index]
-            )
+            if self.page_types[left_index] == "map":
+                image_path = self.page_image_paths[
+                    left_index
+                ]
+
+                if image_path:
+                    self.show_map_page(
+                        self.left_page_preview,
+                        image_path,
+                    )
+                else:
+                    self.left_page_preview.clear()
+            else:
+                self.left_page_preview.setPlainText(
+                    self.pages[left_index]
+                )
         else:
             self.left_page_preview.clear()
 
         if right_index < len(self.pages):
-            self.right_page_preview.setPlainText(
-                self.pages[right_index]
-            )
+            if self.page_types[right_index] == "map":
+                image_path = self.page_image_paths[
+                    right_index
+                ]
+
+                if image_path:
+                    self.show_map_page(
+                        self.right_page_preview,
+                        image_path,
+                    )
+            else:
+                self.right_page_preview.setPlainText(
+                    self.pages[right_index]
+                )
         else:
             self.right_page_preview.clear()
 
@@ -662,12 +860,21 @@ class bookformwindow(QWidget):
             and self.page_starts_with_continuation[right_index]
         )
 
-        self.apply_font_settings(
-            self.left_page_preview
-        )
-        self.apply_font_settings(
-            self.right_page_preview
-        )
+        if (
+            left_index >= 0
+            and self.page_types[left_index] != "map"
+        ):
+            self.apply_font_settings(
+                self.left_page_preview
+            )
+
+        if (
+            right_index < len(self.pages)
+            and self.page_types[right_index] != "map"
+        ):
+            self.apply_font_settings(
+                self.right_page_preview
+            )
 
         if left_index >= 0:
             left_page_type = self.page_types[left_index]
@@ -684,6 +891,14 @@ class bookformwindow(QWidget):
 
             elif left_page_type == "copyright":
                 self.apply_copyright_formatting(
+                    self.left_page_preview
+                )
+
+            elif left_page_type == "map":
+                pass
+
+            elif left_page_type == "trigger_warnings":
+                self.apply_trigger_warnings_formatting(
                     self.left_page_preview
                 )
 
@@ -708,6 +923,14 @@ class bookformwindow(QWidget):
 
             elif right_page_type == "copyright":
                 self.apply_copyright_formatting(
+                    self.right_page_preview
+                )
+
+            elif right_page_type == "map":
+                pass
+
+            elif right_page_type == "trigger_warnings":
+                self.apply_trigger_warnings_formatting(
                     self.right_page_preview
                 )
 
@@ -748,6 +971,22 @@ class bookformwindow(QWidget):
         self.pages = []
         self.page_starts_with_continuation = []
         self.page_types = []
+        self.page_image_paths = []
+
+        front_matter_pages, front_matter_indexes = (
+            page_assembly.build_front_matter_pages(
+                self.front_matter,
+                self.paragraphs,
+            )
+        )
+
+        for page in front_matter_pages:
+            self.add_page(
+                page.text,
+                False,
+                page_type=page.page_type,
+                image_path=page.image_path,
+            )
 
         current_page_text = ""
         current_page_starts_with_continuation = False
@@ -758,81 +997,7 @@ class bookformwindow(QWidget):
             if paragraph_index % 25 == 0:
                 QApplication.processEvents()
 
-            title_page = self.front_matter.title_page
-
-            if (
-                title_page is not None
-                and title_page.start_index is not None
-                and title_page.end_index is not None
-                and title_page.start_index
-                <= paragraph_index
-                <= title_page.end_index
-            ):
-                if paragraph_index == title_page.start_index:
-                    if current_page_text:
-                        self.add_page(
-                            current_page_text,
-                            current_page_starts_with_continuation,
-                        )
-
-                        current_page_text = ""
-                        current_page_starts_with_continuation = False
-
-                    title_page_text = "\n".join(
-                        self.paragraphs[
-                            title_page.start_index:
-                            title_page.end_index + 1
-                        ]
-                    )
-                    # Title Page insert
-                    self.add_page(
-                        title_page_text,
-                        False,
-                        page_type="title_page",
-                    )
-                    # Copyright Page insert
-                    if self.front_matter.copyright is not None:
-                        self.add_page(
-                            self.front_matter.copyright.text,
-                            False,
-                            page_type="copyright",
-                        )
-
-                continue
-
-            dedication = self.front_matter.dedication
-
-            if (
-                dedication is not None
-                and dedication.start_index is not None
-                and dedication.end_index is not None
-                and dedication.start_index
-                <= paragraph_index
-                <= dedication.end_index
-            ):
-                if paragraph_index == dedication.start_index:
-                    if current_page_text:
-                        self.add_page(
-                            current_page_text,
-                            current_page_starts_with_continuation,
-                        )
-
-                        current_page_text = ""
-                        current_page_starts_with_continuation = False
-
-                    dedication_text = "\n".join(
-                        self.paragraphs[
-                            dedication.start_index:
-                            dedication.end_index + 1
-                        ]
-                    )
-
-                    self.add_page(
-                        dedication_text,
-                        False,
-                        page_type="dedication",
-                    )
-
+            if paragraph_index in front_matter_indexes:
                 continue
 
             if manuscript.is_chapter_heading(paragraph):
@@ -1340,6 +1505,28 @@ class bookformwindow(QWidget):
             block_number += 1
             block = block.next()
 
+    def apply_trigger_warnings_formatting(
+        self,
+        preview: QTextEdit,
+    ) -> None:
+        document = preview.document()
+        block = document.begin()
+
+        while block.isValid():
+            block_format = QTextBlockFormat()
+
+            block_format.setAlignment(
+                Qt.AlignmentFlag.AlignLeft
+            )
+            block_format.setTextIndent(0)
+
+            cursor = QTextCursor(block)
+            cursor.setBlockFormat(
+                block_format
+            )
+
+            block = block.next()
+
     def line_spacing_changed(self) -> None:
         self.apply_paragraph_formatting(self.page_preview)
         self.update_pages()
@@ -1355,6 +1542,7 @@ class bookformwindow(QWidget):
         text: str,
         starts_with_continuation: bool = False,
         page_type: str = "body",
+        image_path: str | None = None,
     ) -> None:
         self.pages.append(text)
 
@@ -1364,6 +1552,9 @@ class bookformwindow(QWidget):
 
         self.page_types.append(
             page_type
+        )
+        self.page_image_paths.append(
+            image_path
         )
 
     def apply_changes(self) -> None:
@@ -1396,9 +1587,70 @@ class bookformwindow(QWidget):
             self.formatting_progress.hide()
             self.apply_changes_button.setEnabled(True)
 
+        self.front_matter_status_label = QLabel(
+            "Front Matter Added: None"
+        )
+
+        self.front_matter_status_label.setWordWrap(
+            True
+        )
+
+        self.controls_layout.addWidget(
+            self.front_matter_status_label
+        )
+
+    def update_front_matter_status(self) -> None:
+        sections = []
+
+        if self.front_matter.title_page is not None:
+            sections.append("Title Page")
+
+        if self.front_matter.copyright is not None:
+            sections.append("Copyright")
+
+        if self.front_matter.dedication is not None:
+            sections.append("Dedication")
+
+        if self.front_matter.map_file is not None:
+            sections.append("Map")
+
+        if self.front_matter.trigger_warnings is not None:
+            sections.append("Trigger Warnings")
+
+        if sections:
+            status_text = (
+                "Front Matter Added:\n"
+                + "\n".join(
+                    f"✓ {section}"
+                    for section in sections
+                )
+            )
+        else:
+            status_text = "Front Matter Added: None"
+
+        self.front_matter_status_label.setText(
+            status_text
+        )
+
+    def remove_front_matter_section(
+        self,
+        section_name: str,
+    ) -> None:
+        front_matter.remove_section(
+            self.front_matter,
+            section_name,
+        )
+
+        self.formatting_pending = True
+
+        self.formatting_status_label.setText(
+            "Formatting changes pending"
+        )
+
+        self.update_front_matter_status()
+
 
 # Functions
-
 def is_chapter_heading(text: str) -> bool:
     return bool(re.match(r"^\d+\.\s+\S", text.strip()))
 
