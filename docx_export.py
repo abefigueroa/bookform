@@ -483,12 +483,6 @@ def add_body_page(
         )
 
         if is_heading:
-            print(
-                "EXPORT CHAPTER HEADING:",
-                repr(line),
-            )
-
-        if is_heading:
             paragraph.alignment = (
                 WD_ALIGN_PARAGRAPH.CENTER
             )

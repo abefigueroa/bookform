@@ -362,7 +362,6 @@ class bookformwindow(QWidget):
                 self.page_number_label.setText("Page 0 of 0")
 
     def configure_title_page(self) -> None:
-        print("Title Page action Triggered")
         if not self.paragraphs:
             QMessageBox.warning(
                 self,
@@ -402,24 +401,6 @@ class bookformwindow(QWidget):
             "Formatting changes pending"
         )
 
-        print(
-            "Title page range:",
-            title_page.start_index,
-            "to",
-            title_page.end_index,
-        )
-
-        print("Title page paragraphs:")
-
-        for index in range(
-            title_page.start_index,
-            title_page.end_index + 1,
-        ):
-            print(
-                index,
-                repr(self.paragraphs[index]),
-            )
-
         QMessageBox.information(
             self,
             "Title Page Found",
@@ -427,7 +408,6 @@ class bookformwindow(QWidget):
         )
 
     def configure_dedication(self) -> None:
-        print("Dedication action triggered")
         if not self.paragraphs:
             QMessageBox.warning(
                 self,
@@ -539,7 +519,6 @@ class bookformwindow(QWidget):
         )
 
     def configure_trigger_warnings(self) -> None:
-        print("Trigger Warnings action triggered")
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Trigger Warnings File",
