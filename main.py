@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QDialog,
     QMessageBox,
+    QCheckBox,
 )
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import (
@@ -38,6 +39,7 @@ import book_layout
 import theme
 import front_matter
 import page_assembly
+import docx_export
 
 # Classes
 class PagePreview(QTextEdit):
@@ -83,8 +85,18 @@ class bookformwindow(QWidget):
 
         self.load_manuscript_action = (
             self.file_menu.addAction(
-                "Load Manuscript..."
+                "Load Manuscript"
             )
+        )
+
+        self.export_docx_action = (
+            self.file_menu.addAction(
+                "Export"
+            )
+        )
+
+        self.export_docx_action.triggered.connect(
+            self.export_docx
         )
 
         self.file_menu.addSeparator()
@@ -204,9 +216,33 @@ class bookformwindow(QWidget):
 
         self.apply_changes_button = QPushButton("Apply Changes")
 
+        self.apply_changes_button.clicked.connect(
+            self.apply_changes
+        )
+        
+        self.controls_layout.addWidget(
+            self.apply_changes_button
+        )
+
+        self.page_numbers_checkbox = QCheckBox(
+            "Include Page Numbers"
+        )
+
+        self.controls_layout.addWidget(
+            self.page_numbers_checkbox
+        )
+
         self.formatting_status_label = QLabel("")
         self.controls_layout.addWidget(
             self.formatting_status_label
+        )
+
+        self.formatting_progress = QProgressBar()
+        self.formatting_progress.setRange(0, 0)
+        self.formatting_progress.hide()
+
+        self.controls_layout.addWidget(
+            self.formatting_progress
         )
 
         self.front_matter_status_label = QLabel(
@@ -219,22 +255,6 @@ class bookformwindow(QWidget):
 
         self.controls_layout.addWidget(
             self.front_matter_status_label
-        )
-
-        self.formatting_progress = QProgressBar()
-        self.formatting_progress.setRange(0, 0)
-        self.formatting_progress.hide()
-
-        self.controls_layout.addWidget(
-            self.formatting_progress
-        )
-
-        self.apply_changes_button.clicked.connect(
-            self.apply_changes
-        )
-
-        self.controls_layout.addWidget(
-            self.apply_changes_button
         )
 
         # manuscript controls
@@ -1583,10 +1603,20 @@ class bookformwindow(QWidget):
         self,
         section_name: str,
     ) -> None:
-        print(
-            "REMOVE FRONT MATTER:",
-            section_name,
-        )
+        if section_name == "clear_all":
+            self.front_matter = (
+                front_matter.clear_all()
+            )
+
+            self.formatting_pending = True
+
+            self.formatting_status_label.setText(
+                "Formatting changes pending"
+            )
+
+            self.update_front_matter_status()
+            return
+
         front_matter.remove_section(
             self.front_matter,
             section_name,
@@ -1613,12 +1643,14 @@ class bookformwindow(QWidget):
 
             if new_gutter_width != self.gutter_width:
                 self.formatting_pending = True
+
                 self.formatting_status_label.setText(
                     "Formatting changes pending"
                 )
 
         else:
             self.formatting_pending = True
+
             self.formatting_status_label.setText(
                 "Formatting changes pending"
             )
@@ -1650,6 +1682,125 @@ class bookformwindow(QWidget):
             self.current_page = 0
 
         self.show_page()
+
+    def export_docx(self) -> None:
+        if not self.pages:
+            QMessageBox.warning(
+                self,
+                "Nothing to Export",
+                "Load and format a manuscript before exporting.",
+            )
+            return
+
+        if self.formatting_pending:
+            QMessageBox.warning(
+                self,
+                "Formatting Changes Pending",
+                "Apply the pending formatting changes "
+                "before exporting.",
+            )
+            return
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export BookForm Document",
+            "",
+            "Word Documents (*.docx)",
+        )
+
+        if not save_path:
+            return
+
+        if not save_path.lower().endswith(".docx"):
+            save_path += ".docx"
+
+        margin_profile = constants.MARGIN_PROFILES[
+            self.margin_profile_combo.currentText()
+        ]
+
+        font_name = self.font_combo.currentText()
+
+        font_size = float(
+            self.font_size_combo.currentText().split()[0]
+        )
+
+        line_spacing = float(
+            self.line_spacing_combo.currentText()
+        )
+
+        self.formatting_status_label.setText(
+            "Exporting DOCX..."
+        )
+
+        self.formatting_progress.setRange(
+            0,
+            len(self.pages),
+        )
+
+        self.formatting_progress.setValue(0)
+        self.formatting_progress.show()
+
+        self.export_docx_action.setEnabled(False)
+
+        QApplication.processEvents()
+
+        try:
+            # Exporter Call
+            docx_export.export_document(
+                pages=self.pages,
+                page_types=self.page_types,
+                page_image_paths=self.page_image_paths,
+                save_path=save_path,
+                margin_profile=margin_profile,
+                gutter_width=self.gutter_width,
+                font_name=font_name,
+                font_size=font_size,
+                line_spacing=line_spacing,
+                first_line_indent=(
+                    constants.FIRST_LINE_INDENT_INCHES
+                ),
+                include_page_numbers=(
+                    self.page_numbers_checkbox.isChecked()
+                ),
+                progress_callback=(
+                    self.update_export_progress
+                ),
+            )
+
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(
+                self,
+                "Export Failed",
+                str(error),
+            )
+            return
+
+        finally:
+            self.formatting_progress.hide()
+            self.export_docx_action.setEnabled(True)
+            self.formatting_status_label.setText("")
+
+        QMessageBox.information(
+            self,
+            "Export Complete",
+            "The 6 × 9 Word document was exported successfully.",
+        )
+
+    def update_export_progress(
+        self,
+        current_page: int,
+        total_pages: int,
+    ) -> None:
+        self.formatting_progress.setValue(
+            current_page
+        )
+
+        self.formatting_status_label.setText(
+            f"Exporting DOCX... "
+            f"{current_page} of {total_pages} pages"
+        )
+
+        QApplication.processEvents()
 
 
 # Functions
