@@ -90,59 +90,15 @@ class bookformwindow(QWidget):
         self.file_menu.addSeparator()
 
         self.front_matter_menu = (
-            self.file_menu.addMenu(
-                "Front Matter"
-            )       
-        )
-
-        self.title_page_action = (
-            self.front_matter_menu.addAction(
-                "Title Page"
+            front_matter.build_front_matter_menu(
+                self.file_menu,
+                self.configure_title_page,
+                self.configure_copyright,
+                self.configure_dedication,
+                self.configure_map,
+                self.configure_trigger_warnings,
+                self.remove_front_matter_section,
             )
-        )
-
-        self.title_page_action.triggered.connect(
-            self.configure_title_page
-        )
-
-        self.copyright_action = (
-            self.front_matter_menu.addAction(
-                "Copyright"
-            )
-        )
-
-        self.copyright_action.triggered.connect(
-            self.configure_copyright
-        )
-
-        self.dedication_action = (
-            self.front_matter_menu.addAction(
-                "Dedication"
-            )
-        )
-
-        self.dedication_action.triggered.connect(
-            self.configure_dedication
-        )
-
-        self.map_action = (
-            self.front_matter_menu.addAction(
-                "Map"
-            )
-        )
-
-        self.map_action.triggered.connect(
-            self.configure_map
-        )
-
-        self.trigger_warnings_action = (
-            self.front_matter_menu.addAction(
-                "Trigger Warnings"
-            )
-        )
-
-        self.trigger_warnings_action.triggered.connect(
-            self.configure_trigger_warnings
         )
 
         self.load_manuscript_action.triggered.connect(
@@ -386,6 +342,7 @@ class bookformwindow(QWidget):
                 self.page_number_label.setText("Page 0 of 0")
 
     def configure_title_page(self) -> None:
+        print("Title Page action Triggered")
         if not self.paragraphs:
             QMessageBox.warning(
                 self,
@@ -450,6 +407,7 @@ class bookformwindow(QWidget):
         )
 
     def configure_dedication(self) -> None:
+        print("Dedication action triggered")
         if not self.paragraphs:
             QMessageBox.warning(
                 self,
@@ -561,6 +519,7 @@ class bookformwindow(QWidget):
         )
 
     def configure_trigger_warnings(self) -> None:
+        print("Trigger Warnings action triggered")
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Trigger Warnings File",
@@ -1587,18 +1546,6 @@ class bookformwindow(QWidget):
             self.formatting_progress.hide()
             self.apply_changes_button.setEnabled(True)
 
-        self.front_matter_status_label = QLabel(
-            "Front Matter Added: None"
-        )
-
-        self.front_matter_status_label.setWordWrap(
-            True
-        )
-
-        self.controls_layout.addWidget(
-            self.front_matter_status_label
-        )
-
     def update_front_matter_status(self) -> None:
         sections = []
 
@@ -1636,18 +1583,73 @@ class bookformwindow(QWidget):
         self,
         section_name: str,
     ) -> None:
+        print(
+            "REMOVE FRONT MATTER:",
+            section_name,
+        )
         front_matter.remove_section(
             self.front_matter,
             section_name,
         )
 
-        self.formatting_pending = True
+        generated_page_types = {
+            "copyright": "copyright",
+            "map_file": "map",
+            "trigger_warnings": "trigger_warnings",
+        }
 
-        self.formatting_status_label.setText(
-            "Formatting changes pending"
-        )
+        if section_name in generated_page_types:
+            self.remove_generated_page(
+                generated_page_types[
+                    section_name
+                ]
+            )
+
+            new_gutter_width = (
+                book_layout.calculate_gutter_width(
+                    len(self.pages)
+                )
+            )
+
+            if new_gutter_width != self.gutter_width:
+                self.formatting_pending = True
+                self.formatting_status_label.setText(
+                    "Formatting changes pending"
+                )
+
+        else:
+            self.formatting_pending = True
+            self.formatting_status_label.setText(
+                "Formatting changes pending"
+            )
 
         self.update_front_matter_status()
+
+    def remove_generated_page(
+        self,
+        page_type: str,
+    ) -> None:
+        indexes_to_remove = [
+            index
+            for index, current_page_type
+            in enumerate(self.page_types)
+            if current_page_type == page_type
+        ]
+
+        for index in reversed(indexes_to_remove):
+            del self.pages[index]
+            del self.page_types[index]
+            del self.page_starts_with_continuation[index]
+
+        if self.pages:
+            self.current_page = min(
+                self.current_page,
+                len(self.pages) - 1,
+            )
+        else:
+            self.current_page = 0
+
+        self.show_page()
 
 
 # Functions

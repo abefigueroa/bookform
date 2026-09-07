@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from docx import Document
+from collections.abc import Callable
 
 # Third-Party imports
 from PySide6.QtWidgets import (
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QMenu,
 )
 
 # Classes
@@ -132,11 +134,143 @@ class TitlePageDialog(QDialog):
         )
 
 # Functions
+def build_front_matter_menu(
+    file_menu: QMenu,
+    configure_title_page: Callable[[], None],
+    configure_copyright: Callable[[], None],
+    configure_dedication: Callable[[], None],
+    configure_map: Callable[[], None],
+    configure_trigger_warnings: Callable[[], None],
+    remove_section: Callable[[str], None],
+) -> QMenu:
+    front_matter_menu = file_menu.addMenu(
+        "Front Matter"
+    )
+
+    title_page_action = (
+        front_matter_menu.addAction(
+            "Title Page"
+        )
+    )
+
+    title_page_action.triggered.connect(
+        configure_title_page
+    )
+
+    copyright_action = (
+        front_matter_menu.addAction(
+            "Copyright"
+        )
+    )
+
+    copyright_action.triggered.connect(
+        configure_copyright
+    )
+
+    dedication_action = (
+        front_matter_menu.addAction(
+            "Dedication"
+        )
+    )
+
+    dedication_action.triggered.connect(
+        configure_dedication
+    )
+
+    map_action = (
+        front_matter_menu.addAction(
+            "Map"
+        )
+    )
+
+    map_action.triggered.connect(
+        configure_map
+    )
+
+    trigger_warnings_action = (
+        front_matter_menu.addAction(
+            "Trigger Warnings"
+        )
+    )
+
+    trigger_warnings_action.triggered.connect(
+        configure_trigger_warnings
+    )
+    # Remove menu
+    remove_menu = file_menu.addMenu(
+        "Remove"
+    )
+
+    remove_title_page_action = (
+        remove_menu.addAction(
+            "Title Page"
+        )
+    )
+
+    remove_title_page_action.triggered.connect(
+        lambda _checked=False: remove_section("title_page")
+    )
+
+    remove_copyright_action = (
+        remove_menu.addAction(
+            "Copyright"
+        )
+    )
+
+    remove_copyright_action.triggered.connect(
+        lambda _checked=False: remove_section("copyright")
+    )
+
+    remove_dedication_action = (
+        remove_menu.addAction(
+            "Dedication"
+        )
+    )
+
+    remove_dedication_action.triggered.connect(
+        lambda _checked=False: remove_section("dedication")
+    )
+
+    remove_map_action = (
+        remove_menu.addAction(
+            "Map"
+        )
+    )
+
+    remove_map_action.triggered.connect(
+        lambda _checked=False: remove_section("map_file")
+    )
+
+    remove_trigger_warnings_action = (
+        remove_menu.addAction(
+            "Trigger Warnings"
+        )
+    )
+
+    remove_trigger_warnings_action.triggered.connect(
+        lambda _checked=False: remove_section("trigger_warnings")
+    )
+
+    remove_menu.addSeparator()
+    
+    clear_all_action = (
+        remove_menu.addAction(
+            "Clear All"
+        )
+    )
+    
+    clear_all_action.triggered.connect(
+            lambda: remove_section(
+                "clear_all"
+            )
+        )
+
+    return front_matter_menu
+
 def normalize_text(text: str) -> str:
     return " ".join(
         text.casefold().split()
     )
-
 
 def find_paragraph(
     paragraphs: list[str],
@@ -256,3 +390,17 @@ def find_text_section(
                 )
 
         return None
+
+def remove_section(
+    front_matter_data: FrontMatter,
+    section_name: str,
+) -> None:
+    setattr(
+        front_matter_data,
+        section_name,
+        None,
+    )
+
+
+def clear_all() -> FrontMatter:
+    return FrontMatter()
