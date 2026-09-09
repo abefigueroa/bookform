@@ -4,6 +4,7 @@
 from operator import index
 import manuscript
 from pathlib import Path
+from docx.image.exceptions import UnrecognizedImageError
 
 # Third-party imports
 from PySide6.QtWidgets import (
@@ -481,7 +482,11 @@ class bookformwindow(QWidget):
                     file_path
                 )
             )
-        except (OSError, ValueError) as error:
+        except (
+            OSError,
+            ValueError,
+            UnrecognizedImageError,
+        ) as error:
             QMessageBox.warning(
                 self,
                 "Copyright File Error",
@@ -580,7 +585,7 @@ class bookformwindow(QWidget):
             self,
             "Select Map Image",
             "",
-            "Image Files (*.png *.jpg *.jpeg)",
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff)",
         )
 
         if not file_path:
@@ -952,7 +957,17 @@ class bookformwindow(QWidget):
         for paragraph_index, paragraph in enumerate(
             self.paragraphs
         ):
-            if paragraph_index % 25 == 0:
+            if paragraph_index % 10 == 0:
+                self.formatting_progress.setValue(
+                    paragraph_index
+                )
+
+                self.formatting_status_label.setText(
+                    f"Formatting manuscript... "
+                    f"{paragraph_index} of "
+                    f"{len(self.paragraphs)} paragraphs"
+                )
+
                 QApplication.processEvents()
 
             if paragraph_index in front_matter_indexes:
@@ -1522,7 +1537,15 @@ class bookformwindow(QWidget):
         self.formatting_status_label.setText(
             "Formatting manuscript, please wait..."
         )
+
+        self.formatting_progress.setRange(
+            0,
+            len(self.paragraphs),
+        )
+
+        self.formatting_progress.setValue(0)
         self.formatting_progress.show()
+
         self.apply_changes_button.setEnabled(False)
 
         QApplication.processEvents()
@@ -1745,6 +1768,15 @@ class bookformwindow(QWidget):
                     self.update_export_progress
                 ),
             )
+
+        except UnrecognizedImageError:
+            QMessageBox.warning(
+                self,
+                "Map Image Error",
+                "The selected map image cannot be added to the Word document. "
+                "Please use a PNG or JPEG image.",
+            )
+            return
 
         except (OSError, ValueError) as error:
             QMessageBox.warning(
